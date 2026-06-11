@@ -86,6 +86,9 @@ export function dashboardPage(key: string): Response {
 
   .del { float: right; border: none; background: none; color: inherit; opacity: .4; cursor: pointer; padding: .1rem .2rem; }
   .del:hover { opacity: 1; color: #ef5350; }
+  .del.rex:hover { color: var(--accent); }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .rex.busy .icon { animation: rot 1s linear infinite; }
   .tog { border: none; background: none; color: inherit; opacity: .65; cursor: pointer; padding: .15rem .5rem .15rem 0; margin-left: -4px; }
   .tog .icon { transition: transform .15s; width: 13px; height: 13px; }
   .card.open .tog .icon { transform: rotate(90deg); }
@@ -166,6 +169,7 @@ const PATHS = {
   frown: '<circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><path d="M9 9h.01M15 9h.01"/>',
   zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
   trash: '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m4 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/>',
   chev: '<path d="M9 6l6 6-6 6"/>',
   play: '<polygon points="7 4 19 12 7 20 7 4"/>',
   pause: '<path d="M9 4H7v16h2zM17 4h-2v16h2z"/>',
@@ -304,6 +308,7 @@ function renderMessage(m) {
     '<div class="box">' +
       '<div class="head meta">' +
         '<button class="del delM" data-mid="' + m.id + '" title="Delete message + its entries">' + icon('trash') + '</button>' +
+        (m.role === 'entry' && m.rawText ? '<button class="del rex" title="Re-run extraction">' + icon('refresh') + '</button>' : '') +
         '<button class="tog" title="Expand/collapse">' + icon('chev') + '</button>' +
         when + ' · <span class="badge">' + esc(src) + '</span>' +
       '</div>' +
@@ -317,6 +322,24 @@ function renderMessage(m) {
     card.classList.toggle('open');
   });
   card.querySelector('.preview').addEventListener('click', () => card.classList.add('open'));
+
+  // Re-extract: re-run the LLM over this message, redraw the card in place.
+  const rex = card.querySelector('.rex');
+  if (rex) rex.addEventListener('click', async () => {
+    if (rex.classList.contains('busy')) return;
+    rex.classList.add('busy');
+    try {
+      const res = await api('/api/admin/reprocess?id=' + m.id, { method: 'POST' });
+      if (res.ok) {
+        m.entries = res.entries || [];
+        m.delivery = res.delivery || null;
+        const fresh = renderMessage(m);
+        if (card.classList.contains('open')) fresh.classList.add('open');
+        card.replaceWith(fresh);
+      } else alert('Re-extract failed: ' + (res.error || 'unknown error'));
+    } catch { alert('Re-extract failed: request error'); }
+    rex.classList.remove('busy');
+  });
 
   // custom player + karaoke wiring
   const audio = card.querySelector('audio');
