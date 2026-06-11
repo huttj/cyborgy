@@ -28,11 +28,11 @@
   // weekly recap based on the local hour in TIMEZONE (DST-proof).
   "triggers": { "crons": ["0 * * * *"] },
 
+  "routes": [{ "pattern": "cyborgy.app", "custom_domain": true }],
+
   "vars": {
     "TIMEZONE": "America/Los_Angeles",
-    // Where the dashboard lives. Switch to https://cyborgy.app once the
-    // domain is registered and the route below is enabled.
-    "PUBLIC_URL": "https://cyborgy.niftyperks.workers.dev"
+    "PUBLIC_URL": "https://cyborgy.app"
   }
 
   // Secrets (set with `wrangler secret put <NAME>`):
