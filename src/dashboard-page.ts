@@ -69,6 +69,8 @@ export function dashboardPage(key: string): Response {
   .ptrack { flex: 1; height: 6px; border-radius: 3px; background: #8883; cursor: pointer; overflow: hidden; }
   .pfill { height: 100%; width: 0; background: var(--accent); }
   .ptime { font-size: .72rem; opacity: .6; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .prate { border: 1px solid var(--line); border-radius: 3px; background: none; color: inherit; opacity: .7; cursor: pointer; font-size: .7rem; padding: .05rem .35rem; flex: none; font-variant-numeric: tabular-nums; }
+  .prate:hover { opacity: 1; }
 
   img.ph { max-width: 280px; border-radius: 4px; margin-top: .4rem; }
   #more { display: block; margin: 1rem auto; }
@@ -199,6 +201,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.da
 
 // --- Stream ---
 let nextBefore = null, rangeDays = 7, query = '';
+let playRate = (() => { try { return [1, 1.5, 2].includes(Number(localStorage.getItem('cyborgy-rate'))) ? Number(localStorage.getItem('cyborgy-rate')) : 1; } catch { return 1; } })();
 const rendered = new Set();
 const feed = document.getElementById('feed');
 const moreBtn = document.getElementById('more');
@@ -277,7 +280,7 @@ function renderMessage(m) {
   const media = m.r2Key
     ? (isPhoto
         ? '<img class="ph" loading="lazy" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(KEY) + '">'
-        : '<div class="player"><button class="pbtn">' + icon('play') + '</button><div class="ptrack"><div class="pfill"></div></div><span class="ptime">·</span>' +
+        : '<div class="player"><button class="pbtn">' + icon('play') + '</button><div class="ptrack"><div class="pfill"></div></div><span class="ptime">·</span><button class="prate" title="Playback speed">1×</button>' +
           '<audio preload="metadata" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(KEY) + '"></audio></div>')
     : '';
   const delivery = m.delivery
@@ -333,6 +336,18 @@ function renderMessage(m) {
     track.addEventListener('click', e => {
       const r = track.getBoundingClientRect();
       if (audio.duration) audio.currentTime = (e.clientX - r.left) / r.width * audio.duration;
+    });
+    // Playback speed: global, persisted, synced across every player.
+    const rateBtn = card.querySelector('.prate');
+    audio.playbackRate = playRate;
+    rateBtn.textContent = playRate + '×';
+    audio.addEventListener('play', () => { audio.playbackRate = playRate; });
+    rateBtn.addEventListener('click', () => {
+      const RATES = [1, 1.5, 2];
+      playRate = RATES[(RATES.indexOf(playRate) + 1) % RATES.length] || 1;
+      try { localStorage.setItem('cyborgy-rate', String(playRate)); } catch {}
+      document.querySelectorAll('audio').forEach(a => a.playbackRate = playRate);
+      document.querySelectorAll('.prate').forEach(b => b.textContent = playRate + '×');
     });
 
     const words = [...card.querySelectorAll('.w')];
