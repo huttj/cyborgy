@@ -16,9 +16,14 @@ export async function tg(
   return body.result;
 }
 
+/** LLM output often carries markdown; we send Telegram plain text, so strip it. */
+export function stripMarkdown(s: string): string {
+  return s.replace(/\[(.*?)\]\((.*?)\)/g, "$1 ($2)").replace(/[*_#`~]/g, "");
+}
+
 export async function sendToUser(env: Env, text: string): Promise<void> {
   // Telegram caps messages at 4096 chars; chunk on paragraph boundaries.
-  const chunks = chunkText(text, 4000);
+  const chunks = chunkText(stripMarkdown(text), 4000);
   for (const chunk of chunks) {
     await tg(env, "sendMessage", { chat_id: Number(env.AUTHORIZED_USER_ID), text: chunk });
   }

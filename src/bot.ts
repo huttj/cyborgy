@@ -2,7 +2,7 @@ import { Bot, Context, InlineKeyboard } from "grammy";
 import type { Env, Intent } from "./types";
 import { classifyIntent, answerQuestion } from "./llm";
 import { ingestEntry, confirmationText, transcribe } from "./pipeline";
-import { downloadTelegramFile, arrayBufferToBase64 } from "./telegram-api";
+import { downloadTelegramFile, arrayBufferToBase64, stripMarkdown } from "./telegram-api";
 import {
   insertMessage,
   getMessage,
@@ -145,7 +145,7 @@ export function createBot(env: Env): Bot {
       await setMessageRole(env, messageId, "question");
       const answer = await answerWithContext(env, msg.raw_text);
       await insertMessage(env, { source: "bot", role: "assistant", rawText: answer });
-      await ctx.reply(answer);
+      await ctx.reply(stripMarkdown(answer));
     } else if (action === "as_e") {
       // Was answered as question; user says it should be saved too.
       await setMessageRole(env, messageId, "entry");
@@ -250,7 +250,7 @@ async function handleAsQuestion(
   });
   const answer = await answerWithContext(env, text);
   await insertMessage(env, { source: "bot", role: "assistant", rawText: answer });
-  await ctx.reply(answer, { reply_markup: rerouteKeyboard("entry", messageId) });
+  await ctx.reply(stripMarkdown(answer), { reply_markup: rerouteKeyboard("entry", messageId) });
 }
 
 export async function answerWithContext(env: Env, question: string): Promise<string> {

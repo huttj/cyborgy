@@ -50,7 +50,7 @@ export function dashboardPage(key: string): Response {
   .entry { padding: .25rem 0; margin: .35rem 0; font-size: .85rem; display: flex; align-items: flex-start; gap: .5rem; }
   .entry .catbadge { margin-top: 1px; }
   .entry .esum { flex: 1; min-width: 0; }
-  .catbadge { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; border-radius: 3px; padding: .05rem 0; font-size: .75rem; border: 1px solid; width: 6rem; flex: none; }
+  .catbadge { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; border-radius: 3px; padding: .05rem 0; font-size: .75rem; border: 1px solid; width: 5.4rem; flex: none; }
   .catrow { display: flex; gap: .55rem; margin-top: .45rem; }
   .catrow .icon { width: 15px; height: 15px; }
 
@@ -94,9 +94,9 @@ export function dashboardPage(key: string): Response {
   @keyframes rot { to { transform: rotate(360deg); } }
   .rex.busy .icon { animation: rot 1s linear infinite; }
   .tog { border: none; background: none; color: inherit; opacity: .65; cursor: pointer; padding: .15rem .5rem .15rem 0; margin-left: -4px; }
-  .tog .icon { transition: transform .15s; width: 13px; height: 13px; vertical-align: -1px; }
+  .tog .icon { transition: transform .15s; width: 13px; height: 13px; vertical-align: -2px; }
   .card.open .tog .icon { transform: rotate(90deg); }
-  .preview { cursor: pointer; margin-top: .3rem; }
+  .preview { cursor: pointer; margin-top: .3rem; font-size: .85rem; }
   .preview .qtext { font-weight: 600; }
   .preview .digest { margin-top: .35rem; font-size: .82rem; opacity: .8; display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
   .card.open .preview { display: none; }
