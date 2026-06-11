@@ -156,6 +156,35 @@ export async function latestReport(
     .first();
 }
 
+/** Last N messages with their extracted entries, newest first — for the admin view. */
+export async function recentMessagesWithEntries(
+  env: Env,
+  limit = 50,
+): Promise<Array<MessageRow & { entries: EntryRow[] }>> {
+  const messages = (
+    await env.DB.prepare(`SELECT * FROM messages ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .bind(limit)
+      .all<MessageRow>()
+  ).results;
+  if (messages.length === 0) return [];
+
+  const ids = messages.map((m) => m.id);
+  const placeholders = ids.map(() => "?").join(",");
+  const entries = (
+    await env.DB.prepare(`SELECT * FROM entries WHERE message_id IN (${placeholders})`)
+      .bind(...ids)
+      .all<EntryRow>()
+  ).results;
+
+  const byMessage = new Map<number, EntryRow[]>();
+  for (const e of entries) {
+    const list = byMessage.get(e.message_id) ?? [];
+    list.push(e);
+    byMessage.set(e.message_id, list);
+  }
+  return messages.map((m) => ({ ...m, entries: byMessage.get(m.id) ?? [] }));
+}
+
 /** Recent conversation turns (questions + assistant replies) for chat context. */
 export async function recentConversation(
   env: Env,

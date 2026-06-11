@@ -3,7 +3,7 @@ import type { Env } from "./types";
 import { createBot } from "./bot";
 import { runScheduled } from "./scheduled";
 import { ingestEntry, confirmationText } from "./pipeline";
-import { dashboardData, dashboardPage } from "./dashboard";
+import { dashboardData, dashboardPage, messagesData } from "./dashboard";
 import { sendToUser } from "./telegram-api";
 
 export default {
@@ -42,11 +42,30 @@ export default {
       return Response.json({ ok: true, entries: entries.length });
     }
 
-    // Dashboard (personal data — gated by key).
+    // Dashboard + admin feed (personal data — gated by key).
     const key = url.searchParams.get("key");
     if (url.pathname === "/api/dashboard" && request.method === "GET") {
       if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
       return dashboardData(env);
+    }
+    if (url.pathname === "/api/messages" && request.method === "GET") {
+      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      return messagesData(env);
+    }
+    // Archived voice/photo files from R2, e.g. /media/voice%2F123-456.oga
+    if (url.pathname.startsWith("/media/") && request.method === "GET") {
+      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      const r2Key = decodeURIComponent(url.pathname.slice("/media/".length));
+      const object = await env.MEDIA.get(r2Key);
+      if (!object) return new Response("not found", { status: 404 });
+      const contentType = r2Key.endsWith(".jpg")
+        ? "image/jpeg"
+        : r2Key.endsWith(".oga")
+          ? "audio/ogg"
+          : "application/octet-stream";
+      return new Response(object.body, {
+        headers: { "content-type": contentType, "cache-control": "private, max-age=3600" },
+      });
     }
     if (url.pathname === "/" && request.method === "GET") {
       if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });

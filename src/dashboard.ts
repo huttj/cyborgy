@@ -1,8 +1,33 @@
-import type { Env } from "./types";
-import { entriesSince, latestReport, now } from "./db";
+import type { Env, Delivery } from "./types";
+import { entriesSince, latestReport, recentMessagesWithEntries, now } from "./db";
 import { dailyMoodEnergySeries } from "./scheduled";
 
 const DAY = 86400;
+
+/** Raw messages + what the LLM extracted from each — the admin feed. */
+export async function messagesData(env: Env): Promise<Response> {
+  const messages = await recentMessagesWithEntries(env, 50);
+  return Response.json({
+    messages: messages.map((m) => ({
+      id: m.id,
+      createdAt: m.created_at,
+      source: m.source,
+      role: m.role,
+      rawText: m.raw_text,
+      r2Key: m.r2_key,
+      wps: m.wps,
+      delivery: m.delivery_json ? (JSON.parse(m.delivery_json) as Delivery) : null,
+      entries: m.entries.map((e) => ({
+        category: e.category,
+        summary: e.summary,
+        entities: JSON.parse(e.entities) as string[],
+        mood: e.mood,
+        energy: e.energy,
+        notes: e.notes,
+      })),
+    })),
+  });
+}
 
 export async function dashboardData(env: Env): Promise<Response> {
   const [entries, weekly] = await Promise.all([
@@ -65,6 +90,8 @@ export function dashboardPage(key: string): Response {
 <div class="card"><pre class="report" id="report">Loading…</pre></div>
 <h2>Recent entries</h2>
 <div id="entries"></div>
+<h2>Message feed <small style="opacity:.6">(what you sent → what got extracted)</small></h2>
+<div id="messages"></div>
 <script>
 (async () => {
   const res = await fetch('/api/dashboard?key=' + encodeURIComponent(${JSON.stringify(key)}));
@@ -96,6 +123,30 @@ export function dashboardPage(key: string): Response {
     return '<div class="entry"><span class="badge">' + e.category + '</span>' + e.summary +
       (scores ? ' <em>(' + scores + ')</em>' : '') + '<div class="meta">' + when + '</div></div>';
   }).join('') || '<em>Nothing yet — go log something!</em>';
+
+  const esc = s => s == null ? '' : String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const mres = await fetch('/api/messages?key=' + encodeURIComponent(${JSON.stringify(key)}));
+  const mdata = await mres.json();
+  document.getElementById('messages').innerHTML = mdata.messages.map(m => {
+    const when = new Date(m.createdAt * 1000).toLocaleString();
+    const media = m.r2Key
+      ? (m.r2Key.startsWith('photo/')
+          ? '<div><img src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(${JSON.stringify(key)}) + '" style="max-width:280px;border-radius:8px"></div>'
+          : '<div><audio controls preload="none" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(${JSON.stringify(key)}) + '"></audio></div>')
+      : '';
+    const delivery = m.delivery
+      ? '<div class="meta">delivery: ' + m.delivery.tags.map(esc).join(', ') +
+        (m.delivery.note ? ' — ' + esc(m.delivery.note) : '') + (m.wps ? ' · ' + m.wps + ' w/s' : '') + '</div>'
+      : (m.wps ? '<div class="meta">' + m.wps + ' w/s</div>' : '');
+    const entries = m.entries.map(e =>
+      '<div class="entry" style="margin-left:1rem"><span class="badge">' + esc(e.category) + '</span>' + esc(e.summary) +
+      ((e.mood != null || e.energy != null) ? ' <em>(' + [e.mood != null ? 'mood ' + e.mood : null, e.energy != null ? 'energy ' + e.energy : null].filter(Boolean).join(', ') + ')</em>' : '') +
+      (e.entities.length ? '<div class="meta">entities: ' + e.entities.map(esc).join(', ') + '</div>' : '') +
+      '</div>').join('');
+    return '<div class="card"><div class="meta">' + when + ' · <span class="badge">' + esc(m.source) + '</span><span class="badge">' + esc(m.role) + '</span></div>' +
+      (m.rawText ? '<div>' + esc(m.rawText) + '</div>' : '<em>(no text)</em>') + media + delivery +
+      (entries ? '<div style="margin-top:.5rem">' + entries + '</div>' : '') + '</div>';
+  }).join('') || '<em>No messages yet.</em>';
 })();
 </script>
 </body>

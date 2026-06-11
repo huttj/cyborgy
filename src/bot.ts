@@ -22,9 +22,15 @@ const ANSWER_CONTEXT_DAYS = 14;
 export function createBot(env: Env): Bot {
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
+  bot.catch((err) => console.error("bot error:", err.message, err.error));
+
   // Single-user bot: drop anything not from the authorized user.
   bot.use(async (ctx, next) => {
-    if (String(ctx.from?.id) !== env.AUTHORIZED_USER_ID) return;
+    const from = String(ctx.from?.id);
+    const authorized = from === env.AUTHORIZED_USER_ID.trim();
+    const kind = Object.keys(ctx.update).filter((k) => k !== "update_id")[0];
+    console.log(`update: type=${kind} from=${from} authorized=${authorized}`);
+    if (!authorized) return;
     await next();
   });
 
