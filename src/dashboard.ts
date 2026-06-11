@@ -1,6 +1,36 @@
 import type { Env, Delivery } from "./types";
-import { entriesSince, latestReport, recentMessagesWithEntries, now } from "./db";
+import {
+  entriesSince,
+  latestReport,
+  recentMessagesWithEntries,
+  getMessage,
+  deleteEntriesForMessage,
+  insertEntries,
+  setMessageDelivery,
+  now,
+} from "./db";
+import { extractEntries } from "./llm";
 import { dailyMoodEnergySeries } from "./scheduled";
+
+/** Re-run extraction for one message (heals stuck rows, applies prompt changes). */
+export async function reprocessMessage(env: Env, id: number): Promise<Response> {
+  const msg = await getMessage(env, id);
+  if (!msg?.raw_text) {
+    return Response.json({ ok: false, error: "message not found or has no text" }, { status: 404 });
+  }
+  await deleteEntriesForMessage(env, id);
+  const { entries, delivery } = await extractEntries(env, msg.raw_text);
+  await insertEntries(env, id, msg.created_at, entries);
+  await setMessageDelivery(env, id, delivery, msg.wps);
+  return Response.json({ ok: true, entries, delivery });
+}
+
+/** Delete a message and its entries (R2 media is left in place). */
+export async function deleteMessage(env: Env, id: number): Promise<Response> {
+  await deleteEntriesForMessage(env, id);
+  await env.DB.prepare(`DELETE FROM messages WHERE id = ?`).bind(id).run();
+  return Response.json({ ok: true });
+}
 
 const DAY = 86400;
 

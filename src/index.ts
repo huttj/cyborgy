@@ -3,7 +3,13 @@ import type { Env } from "./types";
 import { createBot } from "./bot";
 import { runScheduled } from "./scheduled";
 import { ingestEntry, confirmationText } from "./pipeline";
-import { dashboardData, dashboardPage, messagesData } from "./dashboard";
+import {
+  dashboardData,
+  dashboardPage,
+  messagesData,
+  reprocessMessage,
+  deleteMessage,
+} from "./dashboard";
 import { sendToUser } from "./telegram-api";
 
 export default {
@@ -71,6 +77,15 @@ export default {
     if (url.pathname === "/api/messages" && request.method === "GET") {
       if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
       return messagesData(env);
+    }
+    // Admin: POST /api/admin/reprocess?id=N | DELETE /api/admin/messages?id=N
+    if (url.pathname === "/api/admin/reprocess" && request.method === "POST") {
+      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      return reprocessMessage(env, Number(url.searchParams.get("id")));
+    }
+    if (url.pathname === "/api/admin/messages" && request.method === "DELETE") {
+      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      return deleteMessage(env, Number(url.searchParams.get("id")));
     }
     // Archived voice/photo files from R2, e.g. /media/voice%2F123-456.oga
     if (url.pathname.startsWith("/media/") && request.method === "GET") {
