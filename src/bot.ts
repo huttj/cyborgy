@@ -52,10 +52,13 @@ export function createBot(env: Env): Bot {
   );
 
   // One-time dashboard sign-in link → exchanged for a session cookie at /auth.
+  // Link preview must stay off: Telegram's preview crawler would fetch the URL
+  // and (before the POST-confirm step existed) consume the single-use token.
   bot.command("login", async (ctx) => {
     const token = await createLoginToken(env);
     await ctx.reply(
       `Tap to sign in to the dashboard (valid 10 minutes, single use):\n${env.PUBLIC_URL}/auth?t=${token}`,
+      { link_preview_options: { is_disabled: true } },
     );
   });
 

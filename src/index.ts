@@ -80,9 +80,26 @@ export default {
       return Response.json({ ok: true, entries: entries.length });
     }
 
-    // Telegram /login link → session cookie.
+    // Telegram /login link → session cookie. GET shows a confirm button and
+    // consumes nothing — link-preview crawlers and prefetchers only GET, so
+    // the single-use token survives until a human presses the button (POST).
     if (url.pathname === "/auth" && request.method === "GET") {
       const token = url.searchParams.get("t") ?? "";
+      return new Response(
+        `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">` +
+          `<meta name="robots" content="noindex">` +
+          `<body style="font-family:system-ui;max-width:26rem;margin:20vh auto;text-align:center;line-height:1.6">` +
+          `<h1 style="font-size:1.3rem">🤖 cyborgy</h1>` +
+          `<form method="POST" action="/auth">` +
+          `<input type="hidden" name="t" value="${token.replace(/[^a-f0-9]/g, "")}">` +
+          `<button style="font-size:1.05rem;padding:.6rem 2.2rem;border-radius:6px;border:1px solid #8886;background:#e07a5f;color:#fff;cursor:pointer">Sign in</button>` +
+          `</form>`,
+        { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+      );
+    }
+    if (url.pathname === "/auth" && request.method === "POST") {
+      const form = await request.formData().catch(() => null);
+      const token = String(form?.get("t") ?? "");
       if (!(await consumeLoginToken(env, token))) {
         return new Response("Link expired or already used — send /login to the bot for a fresh one.", {
           status: 401,
