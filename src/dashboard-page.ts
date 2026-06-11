@@ -32,8 +32,9 @@ export function dashboardPage(key: string): Response {
      page margins on wide screens, fall back inline on narrow ones */
   .card { position: relative; display: flex; gap: .55rem; margin: .9rem 0; align-items: flex-start; }
   .typecol, .statcol { display: flex; flex-direction: column; gap: .5rem; align-items: center; min-width: 1.6rem; padding-top: .6rem; }
+  .statcol { gap: .65rem; }
   .typecol .icon { width: 17px; height: 17px; opacity: .65; }
-  .stat { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+  .stat { display: flex; flex-direction: column; align-items: center; line-height: 1.1; gap: 1px; }
   .stat .icon { width: 17px; height: 17px; }
   .stat b { font-size: .68rem; opacity: .7; font-weight: 600; }
   .box { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 4px; padding: .65rem .85rem; }
@@ -46,8 +47,9 @@ export function dashboardPage(key: string): Response {
   .meta { opacity: .55; font-size: .78rem; }
   .head { cursor: pointer; user-select: none; }
   .badge { display: inline-block; border-radius: 3px; padding: 0 .45rem; margin-right: .3rem; font-size: .75rem; border: 1px solid var(--line); }
-  .entry { padding: .3rem 0; margin: .35rem 0; font-size: .9rem; }
-  .catbadge { display: inline-flex; align-items: center; gap: .25rem; border-radius: 3px; padding: 0 .45rem; margin-right: .4rem; font-size: .75rem; border: 1px solid; }
+  .entry { padding: .25rem 0; margin: .35rem 0; font-size: .85rem; display: flex; align-items: center; gap: .5rem; }
+  .entry .esum { flex: 1; min-width: 0; }
+  .catbadge { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; border-radius: 3px; padding: .05rem 0; font-size: .75rem; border: 1px solid; width: 6rem; flex: none; }
   .catrow { display: flex; gap: .55rem; margin-top: .45rem; }
   .catrow .icon { width: 15px; height: 15px; }
 
@@ -60,8 +62,8 @@ export function dashboardPage(key: string): Response {
   .w:hover { background: #8883; }
   .w.active { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 
-  /* custom audio player */
-  .player { display: flex; align-items: center; gap: .6rem; margin-top: .55rem; }
+  /* custom audio player — divider above separates it from the transcript */
+  .player { display: flex; align-items: center; gap: .6rem; margin-top: .6rem; padding-top: .55rem; border-top: 1px solid var(--line); }
   .pbtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: none; color: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
   .pbtn .icon { width: 13px; height: 13px; }
   .ptrack { flex: 1; height: 6px; border-radius: 3px; background: #8883; cursor: pointer; overflow: hidden; }
@@ -81,7 +83,7 @@ export function dashboardPage(key: string): Response {
 
   .del { float: right; border: none; background: none; color: inherit; opacity: .4; cursor: pointer; padding: .1rem .2rem; }
   .del:hover { opacity: 1; color: #ef5350; }
-  .tog { border: none; background: none; color: inherit; opacity: .65; cursor: pointer; padding: .15rem .5rem .15rem .1rem; }
+  .tog { border: none; background: none; color: inherit; opacity: .65; cursor: pointer; padding: .15rem .5rem .15rem 0; margin-left: -4px; }
   .tog .icon { transition: transform .15s; width: 13px; height: 13px; }
   .card.open .tog .icon { transform: rotate(90deg); }
   .preview { cursor: pointer; margin-top: .3rem; }
@@ -90,7 +92,7 @@ export function dashboardPage(key: string): Response {
   .card.open .preview { display: none; }
   .card .detail { display: none; } .card.open .detail { display: block; margin-top: .35rem; }
   .qfull { font-weight: 600; }
-  .answer { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--line); }
+  .answer { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--line); font-size: .85rem; }
   .aiblock { border-top: 1px solid var(--line); margin-top: .6rem; padding-top: .55rem; }
 
   .md p { margin: .25rem 0; } .md ul, .md ol { margin: .2rem 0; padding-left: 1.2rem; }
@@ -285,9 +287,9 @@ function renderMessage(m) {
   const entryRows = m.entries.map(e =>
     '<div class="entry">' +
     '<span class="catbadge" style="border-color:' + (CAT[e.category]||CAT.other) + ';color:' + (CAT[e.category]||CAT.other) + '">' + icon(CAT_IC[e.category] || 'tag') + esc(e.category) + '</span>' +
-    esc(e.summary) +
+    '<span class="esum">' + esc(e.summary) +
     ((e.mood != null || e.energy != null) ? ' <em class="meta">(' + [e.mood != null ? 'mood ' + e.mood : null, e.energy != null ? 'energy ' + e.energy : null].filter(Boolean).join(', ') + ')</em>' : '') +
-    '</div>').join('');
+    '</span></div>').join('');
   // divider goes BEFORE the AI material (delivery analysis + extraction)
   const aiblock = (delivery || entryRows)
     ? '<div class="aiblock">' + delivery + (entryRows ? '<div style="margin-top:.4rem">' + entryRows + '</div>' : '') + '</div>'
@@ -299,7 +301,7 @@ function renderMessage(m) {
       '<div class="head meta">' +
         '<button class="del delM" data-mid="' + m.id + '" title="Delete message + its entries">' + icon('trash') + '</button>' +
         '<button class="tog" title="Expand/collapse">' + icon('chev') + '</button>' +
-        when + ' · <span class="badge">' + esc(src) + '</span><span class="badge">' + esc(m.role) + '</span>' +
+        when + ' · <span class="badge">' + esc(src) + '</span>' +
       '</div>' +
       '<div class="preview">' + previewText + digest + catrow + '</div>' +
       '<div class="detail">' + text + media + answer + aiblock + '</div>' +
