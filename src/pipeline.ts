@@ -1,16 +1,45 @@
-import type { Env, ExtractedEntry, Delivery } from "./types";
+import type { Env, ExtractedEntry, Delivery, TranscriptWord } from "./types";
 import { extractEntries } from "./llm";
 import { insertMessage, insertEntries, setMessageDelivery, now } from "./db";
 import { arrayBufferToBase64 } from "./telegram-api";
 
+export interface Transcription {
+  text: string;
+  /** Word-level timestamps when the model provides them; null otherwise. */
+  words: TranscriptWord[] | null;
+}
+
 /** Transcribe audio with Workers AI Whisper (free daily allocation). */
-export async function transcribe(env: Env, audio: ArrayBuffer): Promise<string> {
+export async function transcribe(env: Env, audio: ArrayBuffer): Promise<Transcription> {
   const result = (await env.AI.run("@cf/openai/whisper-large-v3-turbo", {
     audio: arrayBufferToBase64(audio),
-  })) as { text?: string };
-  const text = result.text?.trim();
+  })) as unknown as Record<string, unknown>;
+  const text = typeof result.text === "string" ? result.text.trim() : "";
   if (!text) throw new Error("transcription returned empty text");
-  return text;
+  return { text, words: harvestWords(result) };
+}
+
+/** Word timestamps appear either top-level (`words`) or nested in `segments[].words`. */
+function harvestWords(result: Record<string, unknown>): TranscriptWord[] | null {
+  const isWord = (w: unknown): w is TranscriptWord =>
+    typeof w === "object" &&
+    w !== null &&
+    typeof (w as TranscriptWord).word === "string" &&
+    typeof (w as TranscriptWord).start === "number" &&
+    typeof (w as TranscriptWord).end === "number";
+
+  if (Array.isArray(result.words) && result.words.every(isWord) && result.words.length > 0) {
+    return result.words;
+  }
+  if (Array.isArray(result.segments)) {
+    const words = result.segments.flatMap((s) =>
+      Array.isArray((s as { words?: unknown[] }).words)
+        ? ((s as { words: unknown[] }).words.filter(isWord) as TranscriptWord[])
+        : [],
+    );
+    if (words.length > 0) return words;
+  }
+  return null;
 }
 
 export interface IngestResult {

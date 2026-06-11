@@ -10,6 +10,7 @@ import {
   entryCountForMessage,
   setMessageRole,
   setMessageDelivery,
+  setMessageWords,
   deleteEntriesForMessage,
   insertEntries,
   entriesSince,
@@ -73,8 +74,9 @@ export function createBot(env: Env): Bot {
       const r2Key = `voice/${ctx.message.message_id}-${Date.now()}.oga`;
       await env.MEDIA.put(r2Key, audio);
 
-      const transcript = await transcribe(env, audio);
+      const { text: transcript, words } = await transcribe(env, audio);
       await routeMessage(env, ctx, transcript, "telegram_voice", r2Key, voice.duration);
+      await setMessageWords(env, ctx.message.message_id, words);
       await ctx.react("👍").catch(() => {});
     } catch (err) {
       console.error("voice handler failed", err);
@@ -251,7 +253,7 @@ async function handleAsQuestion(
   await ctx.reply(answer, { reply_markup: rerouteKeyboard("entry", messageId) });
 }
 
-async function answerWithContext(env: Env, question: string): Promise<string> {
+export async function answerWithContext(env: Env, question: string): Promise<string> {
   const [entries, conversation] = await Promise.all([
     entriesSince(env, now() - ANSWER_CONTEXT_DAYS * DAY),
     recentConversation(env, DAY),

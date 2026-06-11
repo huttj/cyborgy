@@ -32,6 +32,12 @@ export interface ExtractedEntry {
   notes: string | null;
 }
 
+export interface TranscriptWord {
+  word: string;
+  start: number;
+  end: number;
+}
+
 export interface Delivery {
   /** Observable speech/writing features, e.g. "self-interrupting", "hedging", "flowing", "terse". */
   tags: string[];
@@ -54,6 +60,7 @@ export interface MessageRow {
   created_at: number;
   delivery_json: string | null;
   wps: number | null;
+  words_json: string | null;
 }
 
 export interface EntryRow {

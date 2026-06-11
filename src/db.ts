@@ -71,6 +71,17 @@ export async function setMessageRole(env: Env, id: number, role: string): Promis
   await env.DB.prepare(`UPDATE messages SET role = ? WHERE id = ?`).bind(role, id).run();
 }
 
+export async function setMessageWords(
+  env: Env,
+  telegramMessageId: number,
+  words: unknown[] | null,
+): Promise<void> {
+  if (!words || words.length === 0) return;
+  await env.DB.prepare(`UPDATE messages SET words_json = ? WHERE telegram_message_id = ?`)
+    .bind(JSON.stringify(words), telegramMessageId)
+    .run();
+}
+
 export async function setMessageDelivery(
   env: Env,
   id: number,
@@ -169,14 +180,35 @@ export async function latestReport(
     .first();
 }
 
-/** Last N messages with their extracted entries, newest first — for the admin view. */
-export async function recentMessagesWithEntries(
+/** Messages with their extracted entries, newest first, with search/time/cursor filters. */
+export async function queryMessagesWithEntries(
   env: Env,
-  limit = 50,
+  opts: { limit?: number; before?: number; q?: string; since?: number } = {},
 ): Promise<Array<MessageRow & { entries: EntryRow[] }>> {
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+  const conds: string[] = [];
+  const binds: unknown[] = [];
+  if (opts.before) {
+    conds.push("id < ?");
+    binds.push(opts.before);
+  }
+  if (opts.since) {
+    conds.push("created_at >= ?");
+    binds.push(opts.since);
+  }
+  if (opts.q) {
+    const like = `%${opts.q}%`;
+    conds.push(
+      `(raw_text LIKE ? OR EXISTS (
+         SELECT 1 FROM entries e WHERE e.message_id = messages.id
+           AND (e.summary LIKE ? OR e.entities LIKE ? OR e.notes LIKE ?)))`,
+    );
+    binds.push(like, like, like, like);
+  }
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
   const messages = (
-    await env.DB.prepare(`SELECT * FROM messages ORDER BY created_at DESC, id DESC LIMIT ?`)
-      .bind(limit)
+    await env.DB.prepare(`SELECT * FROM messages ${where} ORDER BY id DESC LIMIT ?`)
+      .bind(...binds, limit)
       .all<MessageRow>()
   ).results;
   if (messages.length === 0) return [];

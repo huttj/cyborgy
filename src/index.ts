@@ -7,6 +7,7 @@ import {
   dashboardData,
   dashboardPage,
   messagesData,
+  askHandler,
   reprocessMessage,
   deleteMessage,
 } from "./dashboard";
@@ -76,12 +77,20 @@ export default {
     }
     if (url.pathname === "/api/messages" && request.method === "GET") {
       if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
-      return messagesData(env);
+      return messagesData(env, url.searchParams);
+    }
+    if (url.pathname === "/api/ask" && request.method === "POST") {
+      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      return askHandler(env, request);
     }
     // Admin: POST /api/admin/reprocess?id=N | DELETE /api/admin/messages?id=N
     if (url.pathname === "/api/admin/reprocess" && request.method === "POST") {
       if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
-      return reprocessMessage(env, Number(url.searchParams.get("id")));
+      return reprocessMessage(
+        env,
+        Number(url.searchParams.get("id")),
+        url.searchParams.get("retranscribe") === "1",
+      );
     }
     if (url.pathname === "/api/admin/messages" && request.method === "DELETE") {
       if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
