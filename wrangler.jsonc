@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cyborgy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Workers AI — used for Whisper transcription (free daily allocation)
+  "ai": { "binding": "AI" },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cyborgy",
+      "database_id": "104ee1bf-1c95-446a-9b9e-98a4bbd46e0c"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      // Create with: wrangler r2 bucket create cyborgy-media
+      "bucket_name": "cyborgy-media"
+    }
+  ],
+
+  // Single hourly cron; src/index.ts dispatches pings / daily recap /
+  // weekly recap based on the local hour in TIMEZONE (DST-proof).
+  "triggers": { "crons": ["0 * * * *"] },
+
+  "vars": {
+    "TIMEZONE": "America/Los_Angeles",
+    // Where the dashboard lives. Switch to https://cyborgy.app once the
+    // domain is registered and the route below is enabled.
+    "PUBLIC_URL": "https://cyborgy.niftyperks.workers.dev"
+  }
+
+  // Secrets (set with `wrangler secret put <NAME>`):
+  //   TELEGRAM_BOT_TOKEN      — from @BotFather
+  //   TELEGRAM_WEBHOOK_SECRET — any random string; also passed to setWebhook
+  //   ANTHROPIC_API_KEY       — console.anthropic.com
+  //   AUTHORIZED_USER_ID      — your Telegram numeric user id (@userinfobot)
+  //   SHORTCUT_TOKEN          — bearer token for the watch Shortcut POST
+  //   DASHBOARD_KEY           — key for viewing the analysis dashboard
+}
