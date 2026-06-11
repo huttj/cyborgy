@@ -5,6 +5,7 @@ import {
   queryMessagesWithEntries,
   getMessage,
   deleteEntriesForMessage,
+  deleteEntry,
   insertEntries,
   insertMessage,
   setMessageDelivery,
@@ -42,6 +43,7 @@ export async function messagesData(env: Env, params: URLSearchParams): Promise<R
       words: m.words_json ? (JSON.parse(m.words_json) as unknown[]) : null,
       delivery: m.delivery_json ? (JSON.parse(m.delivery_json) as Delivery) : null,
       entries: m.entries.map((e) => ({
+        id: e.id,
         category: e.category,
         summary: e.summary,
         entities: JSON.parse(e.entities) as string[],
@@ -130,6 +132,12 @@ export async function deleteMessage(env: Env, id: number): Promise<Response> {
   return Response.json({ ok: true });
 }
 
+/** Delete a single extracted entry, leaving the raw message intact. */
+export async function deleteEntryHandler(env: Env, id: number): Promise<Response> {
+  await deleteEntry(env, id);
+  return Response.json({ ok: true });
+}
+
 // ---------------------------------------------------------------------------
 // The app shell — Stream / Review / Ask tabs, hash-routed, no framework.
 // ---------------------------------------------------------------------------
@@ -143,6 +151,8 @@ export function dashboardPage(key: string): Response {
 <meta name="robots" content="noindex">
 <title>cyborgy</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <style>
   :root { color-scheme: light dark; --accent: #e07a5f; --line: #8883; }
   * { box-sizing: border-box; }
@@ -177,6 +187,11 @@ export function dashboardPage(key: string): Response {
   .msg.a { align-self: flex-start; border: 1px solid var(--line); border-bottom-left-radius: 4px; }
   #askForm { display: flex; gap: .5rem; }
   #askInput { flex: 1; padding: .55rem .8rem; border-radius: 12px; border: 1px solid var(--line); background: none; color: inherit; font-size: 1rem; }
+  .del { float: right; border: none; background: none; color: inherit; opacity: .35; cursor: pointer; font-size: .9rem; padding: 0 .2rem; }
+  .del:hover { opacity: 1; color: #ef5350; }
+  .md p { margin: .4rem 0; } .md ul, .md ol { margin: .3rem 0; padding-left: 1.3rem; }
+  .md h1, .md h2, .md h3 { font-size: 1rem; margin: .6rem 0 .2rem; }
+  .md code { background: #8882; border-radius: 4px; padding: 0 .25rem; font-size: .85em; }
 </style>
 </head>
 <body>
@@ -206,7 +221,7 @@ export function dashboardPage(key: string): Response {
   <h2 style="font-size:1rem">This week by category</h2>
   <div id="categories"></div>
   <h2 style="font-size:1rem">Latest weekly analysis</h2>
-  <div class="card"><pre class="report" id="report">Loading…</pre></div>
+  <div class="card md" id="report">Loading…</div>
 </section>
 
 <section id="ask" class="view">
@@ -221,9 +236,14 @@ export function dashboardPage(key: string): Response {
 const KEY = ${JSON.stringify(key)};
 const CAT = { food:'#7cb342', exercise:'#fb8c00', activity:'#42a5f5', social:'#ab47bc',
               work:'#78909c', mood:'#ef5350', thought:'#26a69a', sleep:'#5c6bc0', other:'#9e9e9e' };
+const CAT_ICON = { food:'🍽️', exercise:'🏃', activity:'🎨', social:'👥', work:'💼',
+                   mood:'🌗', thought:'💭', sleep:'😴', other:'📌' };
+const SRC_ICON = { voice:'🎙️', text:'💬', photo:'📷', shortcut:'⌚', web:'🌐', bot:'🤖' };
+const ROLE_ICON = { entry:'📝', question:'❓', assistant:'🤖' };
 const esc = s => s == null ? '' : String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const md = s => DOMPurify.sanitize(marked.parse(s || ''));
 const api = (path, opts) => fetch(path + (path.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY), opts).then(r => r.json());
-const catBadge = c => '<span class="badge cat" style="border-color:' + (CAT[c]||CAT.other) + ';background:' + (CAT[c]||CAT.other) + '22">' + esc(c) + '</span>';
+const catBadge = c => '<span class="badge cat" style="border-color:' + (CAT[c]||CAT.other) + ';background:' + (CAT[c]||CAT.other) + '22">' + (CAT_ICON[c]||CAT_ICON.other) + ' ' + esc(c) + '</span>';
 
 // --- tabs (hash-routed) ---
 function show(v) {
@@ -273,11 +293,16 @@ function renderMessage(m) {
     ? '<div class="meta">🗣 ' + m.delivery.tags.map(esc).join(', ') + (m.delivery.note ? ' — ' + esc(m.delivery.note) : '') + (m.wps ? ' · ' + m.wps + ' w/s' : '') + '</div>'
     : (m.wps ? '<div class="meta">🗣 ' + m.wps + ' w/s</div>' : '');
   const entries = m.entries.map(e =>
-    '<div class="entry" style="border-left-color:' + (CAT[e.category]||CAT.other) + '">' + catBadge(e.category) + esc(e.summary) +
+    '<div class="entry" style="border-left-color:' + (CAT[e.category]||CAT.other) + '">' +
+    '<button class="del delE" data-eid="' + e.id + '" title="Delete this entry">✕</button>' +
+    catBadge(e.category) + esc(e.summary) +
     ((e.mood != null || e.energy != null) ? ' <em class="meta">(' + [e.mood != null ? 'mood ' + e.mood : null, e.energy != null ? 'energy ' + e.energy : null].filter(Boolean).join(', ') + ')</em>' : '') +
     (e.entities.length ? '<div class="meta">' + e.entities.map(esc).join(' · ') + '</div>' : '') +
     '</div>').join('');
-  card.innerHTML = '<div class="meta">' + when + ' · <span class="badge">' + esc(m.source.replace('telegram_','')) + '</span><span class="badge">' + esc(m.role) + '</span></div>'
+  const src = m.source.replace('telegram_','');
+  card.innerHTML = '<div class="meta">' +
+    '<button class="del delM" data-mid="' + m.id + '" title="Delete message + its entries">✕</button>' +
+    when + ' · <span class="badge">' + (SRC_ICON[src]||'') + ' ' + esc(src) + '</span><span class="badge">' + (ROLE_ICON[m.role]||'') + ' ' + esc(m.role) + '</span></div>'
     + text + media + delivery + (entries ? '<div style="margin-top:.5rem">' + entries + '</div>' : '');
 
   // karaoke wiring
@@ -296,6 +321,19 @@ function renderMessage(m) {
   }
   return card;
 }
+
+// Delete buttons (event delegation on the feed).
+feed.addEventListener('click', async e => {
+  const delM = e.target.closest('.delM');
+  const delE = e.target.closest('.delE');
+  if (delM && confirm('Delete this message and all its entries?')) {
+    await api('/api/admin/messages?id=' + delM.dataset.mid, { method: 'DELETE' });
+    delM.closest('.card').remove();
+  } else if (delE && confirm('Delete this entry?')) {
+    await api('/api/admin/entries?id=' + delE.dataset.eid, { method: 'DELETE' });
+    delE.closest('.entry').remove();
+  }
+});
 
 moreBtn.onclick = () => loadFeed(false);
 document.querySelectorAll('.chip.range').forEach(b => b.onclick = () => {
@@ -325,8 +363,8 @@ async function loadReview() {
     .sort((a, b) => b[1] - a[1])
     .map(([c, n]) => catBadge(c) + '<span class="meta">× ' + n + '</span> ')
     .join(' ') || '<em>No entries this week yet.</em>';
-  document.getElementById('report').textContent =
-    data.latestWeeklyReport ? data.latestWeeklyReport.markdown : 'No weekly report yet — it generates Sunday evenings.';
+  document.getElementById('report').innerHTML =
+    data.latestWeeklyReport ? md(data.latestWeeklyReport.markdown) : '<em>No weekly report yet — it generates Sunday evenings.</em>';
 }
 
 // --- Ask ---
@@ -339,11 +377,12 @@ document.getElementById('askForm').addEventListener('submit', async e => {
   input.value = '';
   chat.insertAdjacentHTML('beforeend', '<div class="msg q">' + esc(question) + '</div>');
   const pending = document.createElement('div');
-  pending.className = 'msg a'; pending.textContent = '…thinking';
+  pending.className = 'msg a md'; pending.textContent = '…thinking';
   chat.appendChild(pending); pending.scrollIntoView({behavior:'smooth'});
   try {
     const res = await api('/api/ask', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ question }) });
-    pending.textContent = res.ok ? res.answer : ('Error: ' + (res.error || 'something went wrong'));
+    if (res.ok) pending.innerHTML = md(res.answer);
+    else pending.textContent = 'Error: ' + (res.error || 'something went wrong');
   } catch { pending.textContent = 'Error: request failed'; }
   pending.scrollIntoView({behavior:'smooth'});
 });

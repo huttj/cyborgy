@@ -10,6 +10,7 @@ import {
   askHandler,
   reprocessMessage,
   deleteMessage,
+  deleteEntryHandler,
 } from "./dashboard";
 import { sendToUser } from "./telegram-api";
 
@@ -95,6 +96,10 @@ export default {
     if (url.pathname === "/api/admin/messages" && request.method === "DELETE") {
       if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
       return deleteMessage(env, Number(url.searchParams.get("id")));
+    }
+    if (url.pathname === "/api/admin/entries" && request.method === "DELETE") {
+      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      return deleteEntryHandler(env, Number(url.searchParams.get("id")));
     }
     // Archived voice/photo files from R2, e.g. /media/voice%2F123-456.oga
     if (url.pathname.startsWith("/media/") && request.method === "GET") {

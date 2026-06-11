@@ -115,6 +115,10 @@ export async function deleteEntriesForMessage(env: Env, messageId: number): Prom
   await env.DB.prepare(`DELETE FROM entries WHERE message_id = ?`).bind(messageId).run();
 }
 
+export async function deleteEntry(env: Env, entryId: number): Promise<void> {
+  await env.DB.prepare(`DELETE FROM entries WHERE id = ?`).bind(entryId).run();
+}
+
 export async function entriesSince(env: Env, since: number, until?: number): Promise<EntryRow[]> {
   const res = await env.DB.prepare(
     `SELECT * FROM entries WHERE ts >= ? AND ts < ? ORDER BY ts ASC`,
