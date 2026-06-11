@@ -28,12 +28,20 @@ export default {
       ) {
         return new Response("unauthorized", { status: 401 });
       }
+      // Buffer the body BEFORE responding — the request stream becomes
+      // unreadable once the response is sent, but waitUntil runs after.
+      const body = await request.text();
+      const buffered = new Request(request.url, {
+        method: "POST",
+        headers: request.headers,
+        body,
+      });
       const bot = createBot(env);
       const handler = webhookCallback(bot, "cloudflare-mod", {
         secretToken: env.TELEGRAM_WEBHOOK_SECRET,
         timeoutMilliseconds: 25_000,
       });
-      ctx.waitUntil(handler(request).catch((err) => console.error("webhook processing:", err)));
+      ctx.waitUntil(handler(buffered).catch((err) => console.error("webhook processing:", err)));
       return new Response("ok");
     }
 

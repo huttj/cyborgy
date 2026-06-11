@@ -178,44 +178,52 @@ export function dashboardPage(key: string): Response {
   header { position: sticky; top: 0; backdrop-filter: blur(12px); background: color-mix(in srgb, Canvas 82%, transparent); z-index: 10; padding: .8rem 0 .5rem; border-bottom: 1px solid var(--line); margin-bottom: 1rem; }
   header h1 { font-size: 1.15rem; margin: 0 0 .5rem; }
   nav { display: flex; gap: .4rem; }
-  nav button { border: 1px solid var(--line); background: none; color: inherit; border-radius: 999px; padding: .25rem .9rem; font-size: .9rem; cursor: pointer; }
+  nav button { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .25rem .9rem; font-size: .9rem; cursor: pointer; }
   nav button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .view { display: none; } .view.on { display: block; }
-  .card { border: 1px solid var(--line); border-radius: 14px; padding: .9rem 1rem; margin: .8rem 0; }
+  .card { border: 1px solid var(--line); border-radius: 4px; padding: .7rem .9rem; margin: .8rem 0; display: flex; gap: .7rem; }
+  .rail { display: flex; flex-direction: column; gap: .3rem; align-items: center; min-width: 1.3rem; padding-top: .15rem; font-size: .95rem; }
+  .main { flex: 1; min-width: 0; }
   .meta { opacity: .55; font-size: .78rem; }
-  .badge { display: inline-block; border-radius: 6px; padding: 0 .45rem; margin-right: .3rem; font-size: .75rem; border: 1px solid var(--line); }
+  .head { cursor: pointer; user-select: none; }
+  .badge { display: inline-block; border-radius: 3px; padding: 0 .45rem; margin-right: .3rem; font-size: .75rem; border: 1px solid var(--line); }
   .cat { border: 1px solid; }
-  .entry { padding: .3rem 0 .3rem .8rem; border-left: 2px solid var(--line); margin: .35rem 0; font-size: .9rem; }
+  .entry { padding: .3rem 0 .3rem .8rem; border-left: 2px solid var(--line); margin: .45rem 0; font-size: .9rem; }
   .controls { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .6rem; }
-  .controls input[type=search] { flex: 1; min-width: 160px; padding: .4rem .7rem; border-radius: 10px; border: 1px solid var(--line); background: none; color: inherit; font-size: .95rem; }
-  .chip { border: 1px solid var(--line); background: none; color: inherit; border-radius: 999px; padding: .2rem .7rem; font-size: .8rem; cursor: pointer; }
+  .controls input[type=search] { flex: 1; min-width: 160px; padding: .4rem .7rem; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; font-size: .95rem; }
+  .chip { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .2rem .7rem; font-size: .8rem; cursor: pointer; }
   .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .w { cursor: pointer; border-radius: 3px; padding: 0 1px; }
   .w:hover { background: #8883; }
   .w.active { background: color-mix(in srgb, var(--accent) 45%, transparent); }
   audio { width: 100%; margin-top: .4rem; height: 36px; }
-  img.ph { max-width: 280px; border-radius: 10px; margin-top: .4rem; }
+  img.ph { max-width: 280px; border-radius: 4px; margin-top: .4rem; }
   #more { display: block; margin: 1rem auto; }
-  button.std { border: 1px solid var(--line); background: none; color: inherit; border-radius: 10px; padding: .4rem 1rem; cursor: pointer; }
-  pre.report { white-space: pre-wrap; font-family: inherit; margin: 0; }
+  button.std { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .4rem 1rem; cursor: pointer; }
   /* Ask */
   #chat { display: flex; flex-direction: column; gap: .6rem; margin-bottom: 1rem; }
-  .msg { padding: .6rem .9rem; border-radius: 14px; max-width: 85%; white-space: pre-wrap; }
-  .msg.q { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
-  .msg.a { align-self: flex-start; border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .msg { padding: .5rem .8rem; border-radius: 4px; max-width: 85%; }
+  .msg.q { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg.a { align-self: flex-start; border: 1px solid var(--line); }
   #askForm { display: flex; gap: .5rem; }
-  #askInput { flex: 1; padding: .55rem .8rem; border-radius: 12px; border: 1px solid var(--line); background: none; color: inherit; font-size: 1rem; }
-  .del { float: right; border: none; background: none; color: inherit; opacity: .35; cursor: pointer; font-size: .9rem; padding: 0 .2rem; }
-  .del:hover { opacity: 1; color: #ef5350; }
-  .tog { border: none; background: none; color: inherit; opacity: .5; cursor: pointer; padding: 0 .35rem 0 0; font-size: .8rem; }
+  #askInput { flex: 1; padding: .55rem .8rem; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; font-size: 1rem; }
+  .del { float: right; border: none; background: none; color: inherit; opacity: .4; cursor: pointer; font-size: .8rem; padding: 0 .2rem; filter: grayscale(1); }
+  .del:hover { opacity: 1; filter: none; }
+  .tog { border: none; background: none; color: inherit; opacity: .65; cursor: pointer; padding: .1rem .55rem .1rem .1rem; font-size: 1rem; line-height: 1; vertical-align: -2px; }
   .tog::before { content: '▸'; } .card.open .tog::before { content: '▾'; }
-  .preview { cursor: pointer; margin-top: .25rem; }
-  .preview .digest { margin-top: .3rem; font-size: .82rem; opacity: .8; }
+  .preview { cursor: pointer; margin-top: .3rem; }
+  .preview .qtext { font-weight: 600; }
+  .preview .digest { margin-top: .35rem; font-size: .82rem; opacity: .8; }
+  .digest .dicons { letter-spacing: .35em; margin: 0 .15em; }
   .card.open .preview { display: none; }
   .card .detail { display: none; } .card.open .detail { display: block; margin-top: .35rem; }
-  .md p { margin: .4rem 0; } .md ul, .md ol { margin: .3rem 0; padding-left: 1.3rem; }
-  .md h1, .md h2, .md h3 { font-size: 1rem; margin: .6rem 0 .2rem; }
-  .md code { background: #8882; border-radius: 4px; padding: 0 .25rem; font-size: .85em; }
+  .qfull { font-weight: 600; }
+  .answer { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--line); }
+  .md p { margin: .25rem 0; } .md ul, .md ol { margin: .2rem 0; padding-left: 1.2rem; }
+  .md li { margin: .1rem 0; } .md li p { margin: 0; }
+  .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+  .md h1, .md h2, .md h3 { font-size: 1rem; margin: .5rem 0 .15rem; }
+  .md code { background: #8882; border-radius: 3px; padding: 0 .25rem; font-size: .85em; }
 </style>
 </head>
 <body>
@@ -280,6 +288,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.da
 
 // --- Stream ---
 let nextBefore = null, rangeDays = 7, query = '';
+const rendered = new Set(); // message ids already in the DOM — belt-and-suspenders dedup
 const feed = document.getElementById('feed');
 const moreBtn = document.getElementById('more');
 
@@ -290,29 +299,45 @@ function sinceParam() {
 }
 
 async function loadFeed(reset) {
-  if (reset) { feed.innerHTML = '<div class="meta">Loading…</div>'; nextBefore = null; }
+  if (reset) { feed.innerHTML = '<div class="meta">Loading…</div>'; nextBefore = null; rendered.clear(); }
   const data = await api('/api/messages?limit=20' + sinceParam()
     + (query ? '&q=' + encodeURIComponent(query) : '')
     + (nextBefore ? '&before=' + nextBefore : ''));
-  if (reset) feed.innerHTML = '';
-  if (reset && data.messages.length === 0) feed.innerHTML = '<em>Nothing here — go log something!</em>';
-  for (const m of data.messages) feed.appendChild(renderMessage(m));
+  // Advance the cursor BEFORE rendering — a render error must never re-serve this page.
   nextBefore = data.nextBefore;
   moreBtn.hidden = !nextBefore;
+  if (reset) feed.innerHTML = '';
+  if (reset && data.messages.length === 0) feed.innerHTML = '<em>Nothing here — go log something!</em>';
+  for (const m of data.messages) {
+    if (rendered.has(m.id)) continue;
+    rendered.add(m.id);
+    try { feed.appendChild(renderMessage(m)); }
+    catch (err) { console.error('render failed for message', m.id, err); }
+  }
 }
 
 function moodDot(avg) { return avg <= 3 ? '🔴' : avg <= 5 ? '🟠' : avg <= 7 ? '🟡' : '🟢'; }
+
 
 function renderMessage(m) {
   const card = document.createElement('div');
   card.className = 'card';
   const when = new Date(m.createdAt * 1000).toLocaleString([], {weekday:'short', month:'numeric', day:'numeric', hour:'numeric', minute:'2-digit'});
+  const isPhoto = m.r2Key && m.r2Key.startsWith('photo/');
 
-  // --- collapsed preview: first words + extraction digest ---
+  // left rail: category icons (or role icon) for at-a-glance identification
+  const railCats = [...new Set(m.entries.map(e => e.category))];
+  const railIcons = railCats.length
+    ? railCats.map(c => '<span title="' + esc(c) + '">' + (CAT_ICON[c]||CAT_ICON.other) + '</span>').join('')
+    : (m.role === 'question' ? '❓' : m.role === 'assistant' ? '🤖' : isPhoto ? '📷' : '');
+
+  // collapsed preview: first words (+ answer snippet / extraction digest)
   const allWords = (m.rawText || '').split(/\\s+/).filter(Boolean);
-  const previewText = allWords.length
+  let previewText = allWords.length
     ? esc(allWords.slice(0, 16).join(' ')) + (allWords.length > 16 ? ' …' : '')
-    : (m.r2Key && m.r2Key.startsWith('photo/') ? '📷 (photo)' : '<em>(no text)</em>');
+    : (isPhoto ? '📷 (photo)' : '<em>(no text)</em>');
+  if (m.role === 'question') previewText = '<span class="qtext">' + previewText + '</span>';
+
   const counts = {}; const moods = []; const energies = [];
   for (const e of m.entries) {
     counts[e.category] = (counts[e.category] || 0) + 1;
@@ -323,47 +348,60 @@ function renderMessage(m) {
   const moodAvg = avg(moods), energyAvg = avg(energies);
   const digestBits = [];
   if (m.entries.length) {
-    digestBits.push(m.entries.length + (m.entries.length === 1 ? ' entry' : ' entries') + ' · ' +
-      Object.entries(counts).map(([c,n]) => (CAT_ICON[c]||CAT_ICON.other) + (n>1 ? '×'+n : '')).join(' ') +
-      (moodAvg != null ? ' · ' + moodDot(moodAvg) + ' mood Ø' + moodAvg : '') +
-      (energyAvg != null ? ' · ⚡ Ø' + energyAvg : ''));
+    digestBits.push(m.entries.length + (m.entries.length === 1 ? ' entry' : ' entries') +
+      ' · <span class="dicons">' + railCats.map(c => CAT_ICON[c]||CAT_ICON.other).join('') + '</span>' +
+      (moodAvg != null ? ' · ' + moodDot(moodAvg) + ' mood ' + moodAvg : '') +
+      (energyAvg != null ? ' · ⚡ ' + energyAvg : ''));
   }
-  if (m.answer) digestBits.push('🤖 answered');
-  const digest = digestBits.length ? '<div class="digest">' + digestBits.join(' · ') + '</div>' : '';
+  if (m.answer) {
+    const aw = (m.answer.text || '').split(/\\s+/).filter(Boolean);
+    digestBits.push('🤖 ' + esc(aw.slice(0, 14).join(' ')) + (aw.length > 14 ? ' …' : ''));
+  }
+  const digest = digestBits.length ? '<div class="digest">' + digestBits.join('<br>') + '</div>' : '';
 
-  // --- expanded detail: full transcript/karaoke, media, delivery, entries ---
-  const text = (m.words && m.words.length)
+  // expanded detail
+  let text = (m.words && m.words.length)
     ? '<div class="transcript">' + m.words.map(w => '<span class="w" data-s="' + w.start + '" data-e="' + w.end + '">' + esc(w.word) + '</span>').join(' ') + '</div>'
     : (m.rawText ? '<div>' + esc(m.rawText) + '</div>' : '<em>(no text)</em>');
+  if (m.role === 'question') text = '<div class="qfull">' + text + '</div>';
   const media = m.r2Key
-    ? (m.r2Key.startsWith('photo/')
+    ? (isPhoto
         ? '<img class="ph" loading="lazy" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(KEY) + '">'
         : '<audio controls preload="none" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(KEY) + '"></audio>')
     : '';
   const delivery = m.delivery
     ? '<div class="meta">🗣 ' + m.delivery.tags.map(esc).join(', ') + (m.delivery.note ? ' — ' + esc(m.delivery.note) : '') + (m.wps ? ' · ' + m.wps + ' w/s' : '') + '</div>'
     : (m.wps ? '<div class="meta">🗣 ' + m.wps + ' w/s</div>' : '');
+  const answer = m.answer ? '<div class="answer md">' + md(m.answer.text) + '</div>' : '';
   const entries = m.entries.map(e =>
     '<div class="entry" style="border-left-color:' + (CAT[e.category]||CAT.other) + '">' +
-    '<button class="del delE" data-eid="' + e.id + '" title="Delete this entry">✕</button>' +
+    '<button class="del delE" data-eid="' + e.id + '" title="Delete this entry">🗑</button>' +
     catBadge(e.category) + esc(e.summary) +
     ((e.mood != null || e.energy != null) ? ' <em class="meta">(' + [e.mood != null ? 'mood ' + e.mood : null, e.energy != null ? 'energy ' + e.energy : null].filter(Boolean).join(', ') + ')</em>' : '') +
     (e.entities.length ? '<div class="meta">' + e.entities.map(esc).join(' · ') + '</div>' : '') +
     '</div>').join('');
 
   const src = m.source.replace('telegram_','');
-  card.innerHTML = '<div class="meta">' +
-    '<button class="del delM" data-mid="' + m.id + '" title="Delete message + its entries">✕</button>' +
-    '<button class="tog" title="Expand/collapse"></button>' +
-    when + ' · <span class="badge">' + (SRC_ICON[src]||'') + ' ' + esc(src) + '</span><span class="badge">' + (ROLE_ICON[m.role]||'') + ' ' + esc(m.role) + '</span></div>' +
-    '<div class="preview">' + previewText + digest + '</div>' +
-    '<div class="detail">' + text + media + delivery +
-    (m.answer ? '<div class="msg a md" style="max-width:100%;margin-top:.5rem">' + md(m.answer.text) + '</div>' : '') +
-    (entries ? '<div style="margin-top:.5rem">' + entries + '</div>' : '') + '</div>';
+  card.innerHTML =
+    '<div class="rail">' + railIcons + '</div>' +
+    '<div class="main">' +
+      '<div class="head meta">' +
+        '<button class="del delM" data-mid="' + m.id + '" title="Delete message + its entries">🗑</button>' +
+        '<button class="tog" title="Expand/collapse"></button>' +
+        when + ' · <span class="badge">' + (SRC_ICON[src]||'') + ' ' + esc(src) + '</span><span class="badge">' + (ROLE_ICON[m.role]||'') + ' ' + esc(m.role) + '</span>' +
+      '</div>' +
+      '<div class="preview">' + previewText + digest + '</div>' +
+      '<div class="detail">' + text + media + delivery + answer +
+        (entries ? '<div style="margin-top:.5rem">' + entries + '</div>' : '') +
+      '</div>' +
+    '</div>';
 
-  // expand/collapse — preview click or chevron; not the delete buttons
+  // whole header (and the preview) is the expand/collapse hitbox
+  card.querySelector('.head').addEventListener('click', e => {
+    if (e.target.closest('.del')) return;
+    card.classList.toggle('open');
+  });
   card.querySelector('.preview').addEventListener('click', () => card.classList.add('open'));
-  card.querySelector('.tog').addEventListener('click', () => card.classList.toggle('open'));
 
   // karaoke wiring
   const audio = card.querySelector('audio');
