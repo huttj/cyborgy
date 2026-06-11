@@ -181,9 +181,11 @@ export function dashboardPage(key: string): Response {
   nav button { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .25rem .9rem; font-size: .9rem; cursor: pointer; }
   nav button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .view { display: none; } .view.on { display: block; }
-  .card { border: 1px solid var(--line); border-radius: 4px; padding: .7rem .9rem; margin: .8rem 0; display: flex; gap: .7rem; }
-  .rail { display: flex; flex-direction: column; gap: .3rem; align-items: center; min-width: 1.3rem; padding-top: .15rem; font-size: .95rem; }
-  .main { flex: 1; min-width: 0; }
+  .card { display: flex; gap: .55rem; margin: .9rem 0; align-items: flex-start; }
+  .statcol, .typecol { display: flex; flex-direction: column; gap: .45rem; align-items: center; min-width: 1.7rem; padding-top: .55rem; font-size: 1rem; }
+  .stat { display: flex; flex-direction: column; align-items: center; line-height: 1.05; }
+  .stat b { font-size: .68rem; opacity: .65; font-weight: 600; }
+  .box { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 4px; padding: .65rem .85rem; }
   .meta { opacity: .55; font-size: .78rem; }
   .head { cursor: pointer; user-select: none; }
   .badge { display: inline-block; border-radius: 3px; padding: 0 .45rem; margin-right: .3rem; font-size: .75rem; border: 1px solid var(--line); }
@@ -207,10 +209,13 @@ export function dashboardPage(key: string): Response {
   .msg.a { align-self: flex-start; border: 1px solid var(--line); }
   #askForm { display: flex; gap: .5rem; }
   #askInput { flex: 1; padding: .55rem .8rem; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; font-size: 1rem; }
-  .del { float: right; border: none; background: none; color: inherit; opacity: .4; cursor: pointer; font-size: .8rem; padding: 0 .2rem; filter: grayscale(1); }
-  .del:hover { opacity: 1; filter: none; }
-  .tog { border: none; background: none; color: inherit; opacity: .65; cursor: pointer; padding: .1rem .55rem .1rem .1rem; font-size: 1rem; line-height: 1; vertical-align: -2px; }
-  .tog::before { content: '▸'; } .card.open .tog::before { content: '▾'; }
+  .icon { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
+  .del { float: right; border: none; background: none; color: inherit; opacity: .4; cursor: pointer; padding: .1rem .2rem; }
+  .del:hover { opacity: 1; color: #ef5350; }
+  .tog { border: none; background: none; color: inherit; opacity: .65; cursor: pointer; padding: .15rem .5rem .15rem .1rem; }
+  .tog .icon { transition: transform .15s; }
+  .card.open .tog .icon { transform: rotate(90deg); }
+  .entries { border-top: 1px solid var(--line); margin-top: .6rem; padding-top: .55rem; }
   .preview { cursor: pointer; margin-top: .3rem; }
   .preview .qtext { font-weight: 600; }
   .preview .digest { margin-top: .35rem; font-size: .82rem; opacity: .8; }
@@ -317,6 +322,11 @@ async function loadFeed(reset) {
 }
 
 function moodDot(avg) { return avg <= 3 ? '🔴' : avg <= 5 ? '🟠' : avg <= 7 ? '🟡' : '🟢'; }
+function moodFace(v) { return v <= 2 ? '😞' : v <= 4 ? '🙁' : v <= 6 ? '😐' : v <= 8 ? '🙂' : '😄'; }
+function energyIcon(v) { return v <= 3 ? '🪫' : v <= 7 ? '🔋' : '⚡'; }
+const stripMd = s => (s || '').replace(/\\[(.*?)\\]\\(.*?\\)/g, '$1').replace(/[*_#>\`~]/g, '');
+const SVG_TRASH = '<svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m4 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>';
+const SVG_CHEV = '<svg class="icon" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
 
 
 function renderMessage(m) {
@@ -325,39 +335,37 @@ function renderMessage(m) {
   const when = new Date(m.createdAt * 1000).toLocaleString([], {weekday:'short', month:'numeric', day:'numeric', hour:'numeric', minute:'2-digit'});
   const isPhoto = m.r2Key && m.r2Key.startsWith('photo/');
 
-  // left rail: category icons (or role icon) for at-a-glance identification
+  // floating columns: type icons on the right of the box (draws the eye)
   const railCats = [...new Set(m.entries.map(e => e.category))];
-  const railIcons = railCats.length
+  const typeIcons = railCats.length
     ? railCats.map(c => '<span title="' + esc(c) + '">' + (CAT_ICON[c]||CAT_ICON.other) + '</span>').join('')
     : (m.role === 'question' ? '❓' : m.role === 'assistant' ? '🤖' : isPhoto ? '📷' : '');
 
   // collapsed preview: first words (+ answer snippet / extraction digest)
-  const allWords = (m.rawText || '').split(/\\s+/).filter(Boolean);
+  const allWords = stripMd(m.rawText).split(/\\s+/).filter(Boolean);
   let previewText = allWords.length
     ? esc(allWords.slice(0, 16).join(' ')) + (allWords.length > 16 ? ' …' : '')
     : (isPhoto ? '📷 (photo)' : '<em>(no text)</em>');
   if (m.role === 'question') previewText = '<span class="qtext">' + previewText + '</span>';
 
-  const counts = {}; const moods = []; const energies = [];
+  // mood/energy averages float on the LEFT of the box, stacked icon + number
+  const moods = []; const energies = [];
   for (const e of m.entries) {
-    counts[e.category] = (counts[e.category] || 0) + 1;
     if (e.mood != null) moods.push(e.mood);
     if (e.energy != null) energies.push(e.energy);
   }
   const avg = xs => xs.length ? Math.round(xs.reduce((a,b)=>a+b,0)/xs.length*10)/10 : null;
   const moodAvg = avg(moods), energyAvg = avg(energies);
+  const stats =
+    (moodAvg != null ? '<div class="stat" title="avg mood"><span>' + moodFace(moodAvg) + '</span><b>' + moodAvg + '</b></div>' : '') +
+    (energyAvg != null ? '<div class="stat" title="avg energy"><span>' + energyIcon(energyAvg) + '</span><b>' + energyAvg + '</b></div>' : '');
   const digestBits = [];
-  if (m.entries.length) {
-    digestBits.push(m.entries.length + (m.entries.length === 1 ? ' entry' : ' entries') +
-      ' · <span class="dicons">' + railCats.map(c => CAT_ICON[c]||CAT_ICON.other).join('') + '</span>' +
-      (moodAvg != null ? ' · ' + moodDot(moodAvg) + ' mood ' + moodAvg : '') +
-      (energyAvg != null ? ' · ⚡ ' + energyAvg : ''));
-  }
+  if (m.entries.length) digestBits.push(m.entries.length + (m.entries.length === 1 ? ' entry' : ' entries'));
   if (m.answer) {
-    const aw = (m.answer.text || '').split(/\\s+/).filter(Boolean);
+    const aw = stripMd(m.answer.text).split(/\\s+/).filter(Boolean);
     digestBits.push('🤖 ' + esc(aw.slice(0, 14).join(' ')) + (aw.length > 14 ? ' …' : ''));
   }
-  const digest = digestBits.length ? '<div class="digest">' + digestBits.join('<br>') + '</div>' : '';
+  const digest = digestBits.length ? '<div class="digest">' + digestBits.join(' · ') + '</div>' : '';
 
   // expanded detail
   let text = (m.words && m.words.length)
@@ -375,26 +383,26 @@ function renderMessage(m) {
   const answer = m.answer ? '<div class="answer md">' + md(m.answer.text) + '</div>' : '';
   const entries = m.entries.map(e =>
     '<div class="entry" style="border-left-color:' + (CAT[e.category]||CAT.other) + '">' +
-    '<button class="del delE" data-eid="' + e.id + '" title="Delete this entry">🗑</button>' +
+    '<button class="del delE" data-eid="' + e.id + '" title="Delete this entry">' + SVG_TRASH + '</button>' +
     catBadge(e.category) + esc(e.summary) +
     ((e.mood != null || e.energy != null) ? ' <em class="meta">(' + [e.mood != null ? 'mood ' + e.mood : null, e.energy != null ? 'energy ' + e.energy : null].filter(Boolean).join(', ') + ')</em>' : '') +
-    (e.entities.length ? '<div class="meta">' + e.entities.map(esc).join(' · ') + '</div>' : '') +
     '</div>').join('');
 
   const src = m.source.replace('telegram_','');
   card.innerHTML =
-    '<div class="rail">' + railIcons + '</div>' +
-    '<div class="main">' +
+    '<div class="statcol">' + stats + '</div>' +
+    '<div class="box">' +
       '<div class="head meta">' +
-        '<button class="del delM" data-mid="' + m.id + '" title="Delete message + its entries">🗑</button>' +
-        '<button class="tog" title="Expand/collapse"></button>' +
+        '<button class="del delM" data-mid="' + m.id + '" title="Delete message + its entries">' + SVG_TRASH + '</button>' +
+        '<button class="tog" title="Expand/collapse">' + SVG_CHEV + '</button>' +
         when + ' · <span class="badge">' + (SRC_ICON[src]||'') + ' ' + esc(src) + '</span><span class="badge">' + (ROLE_ICON[m.role]||'') + ' ' + esc(m.role) + '</span>' +
       '</div>' +
       '<div class="preview">' + previewText + digest + '</div>' +
       '<div class="detail">' + text + media + delivery + answer +
-        (entries ? '<div style="margin-top:.5rem">' + entries + '</div>' : '') +
+        (entries ? '<div class="entries">' + entries + '</div>' : '') +
       '</div>' +
-    '</div>';
+    '</div>' +
+    '<div class="typecol">' + typeIcons + '</div>';
 
   // whole header (and the preview) is the expand/collapse hitbox
   card.querySelector('.head').addEventListener('click', e => {

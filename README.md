@@ -100,6 +100,10 @@ npm run typecheck
 
 ## Future ideas
 
+- **"Request edit" on extractions** — move Ask into a persistent sidebar; each entry gets
+  an "ask about this" button that adds it to the question context, and the agent can
+  trigger re-extraction with corrective guidance or edit/delete specific entries itself
+
 - Vectorize-backed semantic search over entries (the old bot's embedding search, serverless)
 - Mini self-experiments: weekly report proposes one, bot tracks compliance
 - Lag-aware correlation stats computed in code (not just LLM eyeballing)
