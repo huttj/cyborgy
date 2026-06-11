@@ -47,7 +47,8 @@ export function dashboardPage(key: string): Response {
   .meta { opacity: .55; font-size: .78rem; }
   .head { cursor: pointer; user-select: none; }
   .badge { display: inline-block; border-radius: 3px; padding: 0 .45rem; margin-right: .3rem; font-size: .75rem; border: 1px solid var(--line); }
-  .entry { padding: .25rem 0; margin: .35rem 0; font-size: .85rem; display: flex; align-items: center; gap: .5rem; }
+  .entry { padding: .25rem 0; margin: .35rem 0; font-size: .85rem; display: flex; align-items: flex-start; gap: .5rem; }
+  .entry .catbadge { margin-top: 1px; }
   .entry .esum { flex: 1; min-width: 0; }
   .catbadge { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; border-radius: 3px; padding: .05rem 0; font-size: .75rem; border: 1px solid; width: 6rem; flex: none; }
   .catrow { display: flex; gap: .55rem; margin-top: .45rem; }
