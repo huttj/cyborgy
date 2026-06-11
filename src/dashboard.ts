@@ -177,10 +177,25 @@ export async function reprocessMessage(
   });
 }
 
-/** Delete a message and its entries (R2 media is left in place). */
+/**
+ * Delete a message and its entries (R2 media is left in place).
+ * Deleting a question also deletes its paired answer — otherwise the
+ * assistant row survives as a confusing orphan card in the feed.
+ */
 export async function deleteMessage(env: Env, id: number): Promise<Response> {
+  const msg = await getMessage(env, id);
   await deleteEntriesForMessage(env, id);
   await env.DB.prepare(`DELETE FROM messages WHERE id = ?`).bind(id).run();
+  if (msg?.role === "question") {
+    const next = await env.DB.prepare(
+      `SELECT id, role FROM messages WHERE id > ? ORDER BY id LIMIT 1`,
+    )
+      .bind(id)
+      .first<{ id: number; role: string }>();
+    if (next?.role === "assistant") {
+      await env.DB.prepare(`DELETE FROM messages WHERE id = ?`).bind(next.id).run();
+    }
+  }
   return Response.json({ ok: true });
 }
 

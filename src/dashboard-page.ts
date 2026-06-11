@@ -64,7 +64,7 @@ export function dashboardPage(key: string): Response {
   .w.active { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 
   /* custom audio player — divider above separates it from the transcript */
-  .player { display: flex; align-items: center; gap: .6rem; margin-top: .6rem; padding-top: .55rem; border-top: 1px solid var(--line); }
+  .player { display: flex; align-items: center; gap: .6rem; margin-top: .6rem; padding: .55rem .3rem 0; border-top: 1px solid var(--line); }
   .pbtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: none; color: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
   .pbtn .icon { width: 13px; height: 13px; }
   .ptrack { flex: 1; height: 6px; border-radius: 3px; background: #8883; cursor: pointer; overflow: hidden; }
@@ -90,16 +90,18 @@ export function dashboardPage(key: string): Response {
   .del { float: right; border: none; background: none; color: inherit; opacity: .4; cursor: pointer; padding: .1rem .2rem; }
   .del:hover { opacity: 1; color: #ef5350; }
   .del.rex:hover { color: var(--accent); }
+  .del.rex { margin-right: .45rem; }
   @keyframes rot { to { transform: rotate(360deg); } }
   .rex.busy .icon { animation: rot 1s linear infinite; }
   .tog { border: none; background: none; color: inherit; opacity: .65; cursor: pointer; padding: .15rem .5rem .15rem 0; margin-left: -4px; }
-  .tog .icon { transition: transform .15s; width: 13px; height: 13px; }
+  .tog .icon { transition: transform .15s; width: 13px; height: 13px; vertical-align: -1px; }
   .card.open .tog .icon { transform: rotate(90deg); }
   .preview { cursor: pointer; margin-top: .3rem; }
   .preview .qtext { font-weight: 600; }
   .preview .digest { margin-top: .35rem; font-size: .82rem; opacity: .8; display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
   .card.open .preview { display: none; }
-  .card .detail { display: none; } .card.open .detail { display: block; margin-top: .35rem; }
+  .card .detail { display: none; } .card.open .detail { display: block; margin-top: .35rem; font-size: .85rem; }
+  .digest .dcount { margin-left: auto; }
   .qfull { font-weight: 600; }
   .answer { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--line); font-size: .85rem; }
   .aiblock { border-top: 1px solid var(--line); margin-top: .6rem; padding-top: .55rem; }
@@ -269,22 +271,25 @@ function renderMessage(m) {
     : (isPhoto ? '' : '<em>(no text)</em>');
   if (m.role === 'question') previewText = '<span class="qtext">' + previewText + '</span>';
   if (isPhoto) previewText += '<img class="thumb" loading="lazy" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(KEY) + '">';
-  const digestBits = [];
-  if (m.entries.length) digestBits.push('<span>' + m.entries.length + (m.entries.length === 1 ? ' entry' : ' entries') + '</span>');
+  // One digest line: category icons left, entry count pushed to the far right.
+  const cats = [...new Set(m.entries.map(e => e.category))];
+  let digest = '';
+  if (m.entries.length) {
+    digest += '<div class="digest">' +
+      cats.map(c => '<span title="' + esc(c) + '">' + icon(CAT_IC[c] || 'tag', 'color:' + (CAT[c]||CAT.other)) + '</span>').join('') +
+      '<span class="dcount">' + m.entries.length + (m.entries.length === 1 ? ' entry' : ' entries') + '</span></div>';
+  }
   if (m.answer) {
     const aw = stripMd(m.answer.text).split(/\\s+/).filter(Boolean);
-    digestBits.push('<span>' + icon('bot') + ' ' + esc(aw.slice(0, 14).join(' ')) + (aw.length > 14 ? ' …' : '') + '</span>');
+    digest += '<div class="digest"><span>' + icon('bot') + ' ' + esc(aw.slice(0, 14).join(' ')) + (aw.length > 14 ? ' …' : '') + '</span></div>';
   }
-  const cats = [...new Set(m.entries.map(e => e.category))];
-  const catrow = cats.length
-    ? '<div class="catrow">' + cats.map(c => '<span title="' + esc(c) + '">' + icon(CAT_IC[c] || 'tag', 'color:' + (CAT[c]||CAT.other)) + '</span>').join('') + '</div>'
-    : '';
-  const digest = digestBits.length ? '<div class="digest">' + digestBits.join(' · ') + '</div>' : '';
 
   // expanded detail: transcript + player, then a divider, then the AI material
   let text = (m.words && m.words.length)
     ? '<div class="transcript">' + m.words.map(w => '<span class="w" data-s="' + w.start + '" data-e="' + w.end + '">' + esc(w.word) + '</span>').join(' ') + '</div>'
-    : (m.rawText ? '<div>' + esc(m.rawText) + '</div>' : (isPhoto ? '' : '<em>(no text)</em>'));
+    : (m.rawText
+        ? (m.role === 'assistant' ? '<div class="md">' + md(m.rawText) + '</div>' : '<div>' + esc(m.rawText) + '</div>')
+        : (isPhoto ? '' : '<em>(no text)</em>'));
   if (m.role === 'question') text = '<div class="qfull">' + text + '</div>';
   const media = m.r2Key
     ? (isPhoto
@@ -318,7 +323,7 @@ function renderMessage(m) {
         '<button class="tog" title="Expand/collapse">' + icon('chev') + '</button>' +
         when + ' · <span class="badge">' + esc(src) + '</span>' +
       '</div>' +
-      '<div class="preview">' + previewText + digest + catrow + '</div>' +
+      '<div class="preview">' + previewText + digest + '</div>' +
       '<div class="detail">' + text + media + answer + aiblock + '</div>' +
     '</div>' +
     statcol;
