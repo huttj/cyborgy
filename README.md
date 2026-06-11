@@ -76,7 +76,7 @@ Then: Watch Ultra → Settings → Action Button → Shortcut → "Log it". Same
 - **Replies to the bot** are always treated as conversation.
 - **Pings**: a few gentle check-ins a day, skipped when you've logged recently.
 - **Daily recap** at 9pm; **weekly analysis** Sunday 6pm with charts and dashboard link.
-- **Dashboard**: `https://cyborgy.<you>.workers.dev/?key=<DASHBOARD_KEY>`
+- **Dashboard**: send `/login` to the bot and tap the link — it sets a 90-day session cookie. (`?key=<DASHBOARD_KEY>` still works as a curl/debug fallback.)
 
 ## Development
 

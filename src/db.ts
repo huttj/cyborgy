@@ -234,6 +234,55 @@ export async function queryMessagesWithEntries(
   return messages.map((m) => ({ ...m, entries: byMessage.get(m.id) ?? [] }));
 }
 
+// --- auth: one-time login tokens + session cookies ---
+
+const LOGIN_TOKEN_TTL = 600; // 10 minutes
+const SESSION_DAYS = 90;
+
+function randomToken(): string {
+  return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+}
+
+export async function createLoginToken(env: Env): Promise<string> {
+  const token = randomToken();
+  await env.DB.prepare(`INSERT INTO login_tokens (token, expires_at) VALUES (?, ?)`)
+    .bind(token, now() + LOGIN_TOKEN_TTL)
+    .run();
+  return token;
+}
+
+/** Atomically consume a login token; true only the first time, within TTL. */
+export async function consumeLoginToken(env: Env, token: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `UPDATE login_tokens SET used = 1 WHERE token = ? AND used = 0 AND expires_at > ? RETURNING token`,
+  )
+    .bind(token, now())
+    .first();
+  return row != null;
+}
+
+export async function createSession(env: Env): Promise<string> {
+  const token = randomToken();
+  await env.DB.prepare(`INSERT INTO sessions (token, created_at, expires_at) VALUES (?, ?, ?)`)
+    .bind(token, now(), now() + SESSION_DAYS * 86400)
+    .run();
+  return token;
+}
+
+export async function sessionValid(env: Env, token: string): Promise<boolean> {
+  const row = await env.DB.prepare(`SELECT 1 AS ok FROM sessions WHERE token = ? AND expires_at > ?`)
+    .bind(token, now())
+    .first();
+  return row != null;
+}
+
+export async function purgeExpiredAuth(env: Env): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM login_tokens WHERE expires_at < ?`).bind(now()),
+    env.DB.prepare(`DELETE FROM sessions WHERE expires_at < ?`).bind(now()),
+  ]);
+}
+
 /** Recent conversation turns (questions + assistant replies) for chat context. */
 export async function recentConversation(
   env: Env,

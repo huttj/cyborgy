@@ -9,6 +9,7 @@ import {
   pingCountSince,
   logPing,
   saveReport,
+  purgeExpiredAuth,
   now,
 } from "./db";
 import type { Delivery } from "./types";
@@ -59,6 +60,7 @@ function localMidnight(env: Env): number {
 }
 
 export async function runScheduled(env: Env): Promise<void> {
+  await purgeExpiredAuth(env).catch(() => {});
   const { hour, weekday } = localParts(env);
 
   if (weekday === WEEKLY_RECAP.weekday && hour === WEEKLY_RECAP.hour) {
@@ -133,7 +135,8 @@ async function runWeeklyRecap(env: Env): Promise<void> {
 
   // Chart via QuickChart (renders Chart.js configs to an image URL).
   const chartUrl = quickChartUrl(series);
-  const dashboardUrl = `${env.PUBLIC_URL}/?key=${env.DASHBOARD_KEY}`;
+  // No key in the link — the dashboard uses /login session cookies now.
+  const dashboardUrl = env.PUBLIC_URL;
   if (chartUrl) {
     await sendPhotoToUser(env, chartUrl, "📊 Your week in mood & energy");
   }

@@ -3,7 +3,7 @@
 // SVG icons (lucide-style) throughout; no emoji in chrome.
 // ---------------------------------------------------------------------------
 
-export function dashboardPage(key: string): Response {
+export function dashboardPage(key: string | null): Response {
   const build = new Date().toISOString().slice(0, 16).replace("T", " ");
   const html = `<!doctype html>
 <html lang="en">
@@ -155,7 +155,7 @@ export function dashboardPage(key: string): Response {
 <footer>cyborgy · build ${build} UTC</footer>
 
 <script>
-const KEY = ${JSON.stringify(key)};
+const KEY = ${JSON.stringify(key ?? "")}; // empty when cookie-authed — requests then rely on the session cookie
 const BUILD = ${JSON.stringify(build)};
 console.log('cyborgy build', BUILD);
 
@@ -198,7 +198,8 @@ const moodIcon = v => v <= 4 ? 'frown' : v <= 6 ? 'meh' : 'smile';
 const esc = s => s == null ? '' : String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const stripMd = s => (s || '').replace(/\\[(.*?)\\]\\(.*?\\)/g, '$1').replace(/[*_#>~]/g, '');
 const md = s => DOMPurify.sanitize(marked.parse(s || ''));
-const api = (path, opts) => fetch(path + (path.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY), opts).then(r => r.json());
+const withKey = p => KEY ? p + (p.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY) : p;
+const api = (path, opts) => fetch(withKey(path), opts).then(r => r.json());
 
 // --- tabs (hash-routed) ---
 function show(v) {
@@ -270,7 +271,7 @@ function renderMessage(m) {
     ? esc(allWords.slice(0, 16).join(' ')) + (allWords.length > 16 ? ' …' : '')
     : (isPhoto ? '' : '<em>(no text)</em>');
   if (m.role === 'question') previewText = '<span class="qtext">' + previewText + '</span>';
-  if (isPhoto) previewText += '<img class="thumb" loading="lazy" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(KEY) + '">';
+  if (isPhoto) previewText += '<img class="thumb" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(m.r2Key)) + '">';
   // One digest line: category icons left, entry count pushed to the far right.
   const cats = [...new Set(m.entries.map(e => e.category))];
   let digest = '';
@@ -293,9 +294,9 @@ function renderMessage(m) {
   if (m.role === 'question') text = '<div class="qfull">' + text + '</div>';
   const media = m.r2Key
     ? (isPhoto
-        ? '<img class="ph" loading="lazy" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(KEY) + '">'
+        ? '<img class="ph" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(m.r2Key)) + '">'
         : '<div class="player"><button class="pbtn">' + icon('play') + '</button><div class="ptrack"><div class="pfill"></div></div><span class="ptime">·</span><button class="prate" title="Playback speed">1×</button>' +
-          '<audio preload="metadata" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(KEY) + '"></audio></div>')
+          '<audio preload="metadata" src="' + withKey('/media/' + encodeURIComponent(m.r2Key)) + '"></audio></div>')
     : '';
   const delivery = m.delivery
     ? '<div class="meta">' + icon('mic') + ' ' + m.delivery.tags.map(esc).join(', ') + (m.delivery.note ? ' — ' + esc(m.delivery.note) : '') + (m.wps ? ' · ' + m.wps + ' w/s' : '') + '</div>'

@@ -15,6 +15,7 @@ import {
   insertEntries,
   entriesSince,
   recentConversation,
+  createLoginToken,
   now,
 } from "./db";
 import { extractEntries } from "./llm";
@@ -46,9 +47,17 @@ export function createBot(env: Env): Bot {
       "Hey! I'm your life tracker. Send me voice notes, texts, or photos about your day — " +
         "food, exercise, moods, who you saw, what you did — and I'll log them. " +
         "Ask me questions anytime ('how was my mood this week?'). " +
-        "Use /note to force-save and /ask to force-question.",
+        "Use /note to force-save, /ask to force-question, /login for a dashboard sign-in link.",
     ),
   );
+
+  // One-time dashboard sign-in link → exchanged for a session cookie at /auth.
+  bot.command("login", async (ctx) => {
+    const token = await createLoginToken(env);
+    await ctx.reply(
+      `Tap to sign in to the dashboard (valid 10 minutes, single use):\n${env.PUBLIC_URL}/auth?t=${token}`,
+    );
+  });
 
   // Explicit overrides for when the classifier shouldn't be trusted.
   bot.command("note", async (ctx) => {

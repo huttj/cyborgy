@@ -13,6 +13,18 @@ import {
   deleteEntryHandler,
 } from "./dashboard";
 import { sendToUser } from "./telegram-api";
+import { consumeLoginToken, createSession, sessionValid } from "./db";
+
+const SESSION_COOKIE = "cyborgy_session";
+
+/** Authorized via session cookie (normal) or ?key= (curl/debug fallback). */
+async function isAuthed(request: Request, env: Env): Promise<boolean> {
+  const url = new URL(request.url);
+  if (url.searchParams.get("key") === env.DASHBOARD_KEY) return true;
+  const cookie = request.headers.get("cookie") ?? "";
+  const match = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([a-f0-9]+)`));
+  return match ? sessionValid(env, match[1]) : false;
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -68,11 +80,30 @@ export default {
       return Response.json({ ok: true, entries: entries.length });
     }
 
-    // Dashboard + admin feed (personal data — gated by key).
+    // Telegram /login link → session cookie.
+    if (url.pathname === "/auth" && request.method === "GET") {
+      const token = url.searchParams.get("t") ?? "";
+      if (!(await consumeLoginToken(env, token))) {
+        return new Response("Link expired or already used — send /login to the bot for a fresh one.", {
+          status: 401,
+        });
+      }
+      const session = await createSession(env);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: "/",
+          "set-cookie": `${SESSION_COOKIE}=${session}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${90 * 86400}`,
+        },
+      });
+    }
+
+    // Dashboard + admin feed (personal data — session cookie, or ?key= fallback).
     const key = url.searchParams.get("key");
+    const authed = await isAuthed(request, env);
     // Debug: which bot does our token belong to, and is the webhook healthy?
     if (url.pathname === "/api/debug/telegram" && request.method === "GET") {
-      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      if (!authed) return new Response("unauthorized", { status: 401 });
       const api = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}`;
       const [me, webhook] = await Promise.all([
         fetch(`${api}/getMe`).then((r) => r.json()),
@@ -81,20 +112,20 @@ export default {
       return Response.json({ me, webhook, authorizedUserId: env.AUTHORIZED_USER_ID });
     }
     if (url.pathname === "/api/dashboard" && request.method === "GET") {
-      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      if (!authed) return new Response("unauthorized", { status: 401 });
       return dashboardData(env);
     }
     if (url.pathname === "/api/messages" && request.method === "GET") {
-      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      if (!authed) return new Response("unauthorized", { status: 401 });
       return messagesData(env, url.searchParams);
     }
     if (url.pathname === "/api/ask" && request.method === "POST") {
-      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      if (!authed) return new Response("unauthorized", { status: 401 });
       return askHandler(env, request);
     }
     // Admin: POST /api/admin/reprocess?id=N | DELETE /api/admin/messages?id=N
     if (url.pathname === "/api/admin/reprocess" && request.method === "POST") {
-      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      if (!authed) return new Response("unauthorized", { status: 401 });
       return reprocessMessage(
         env,
         Number(url.searchParams.get("id")),
@@ -102,16 +133,16 @@ export default {
       );
     }
     if (url.pathname === "/api/admin/messages" && request.method === "DELETE") {
-      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      if (!authed) return new Response("unauthorized", { status: 401 });
       return deleteMessage(env, Number(url.searchParams.get("id")));
     }
     if (url.pathname === "/api/admin/entries" && request.method === "DELETE") {
-      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      if (!authed) return new Response("unauthorized", { status: 401 });
       return deleteEntryHandler(env, Number(url.searchParams.get("id")));
     }
     // Archived voice/photo files from R2, e.g. /media/voice%2F123-456.oga
     if (url.pathname.startsWith("/media/") && request.method === "GET") {
-      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      if (!authed) return new Response("unauthorized", { status: 401 });
       const r2Key = decodeURIComponent(url.pathname.slice("/media/".length));
       const object = await env.MEDIA.get(r2Key);
       if (!object) return new Response("not found", { status: 404 });
@@ -125,7 +156,15 @@ export default {
       });
     }
     if (url.pathname === "/" && request.method === "GET") {
-      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      if (!authed) {
+        return new Response(
+          `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">` +
+            `<body style="font-family:system-ui;max-width:26rem;margin:20vh auto;text-align:center;line-height:1.6">` +
+            `<h1 style="font-size:1.3rem">🤖 cyborgy</h1>` +
+            `<p>Send <b>/login</b> to your Telegram bot and tap the link it replies with to sign in here.</p>`,
+          { status: 401, headers: { "content-type": "text/html; charset=utf-8" } },
+        );
+      }
       return dashboardPage(key);
     }
 
