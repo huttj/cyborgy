@@ -25,14 +25,32 @@ const DAY = 86400;
 /** Paginated, searchable message feed with extracted entries. */
 export async function messagesData(env: Env, params: URLSearchParams): Promise<Response> {
   const limit = Number(params.get("limit")) || 20;
-  const messages = await queryMessagesWithEntries(env, {
+  const rows = await queryMessagesWithEntries(env, {
     limit,
     before: Number(params.get("before")) || undefined,
     since: Number(params.get("since")) || undefined,
     q: params.get("q")?.trim() || undefined,
   });
+
+  // Pair Q→A: each assistant row folds into the nearest preceding question,
+  // so the feed shows one card per exchange.
+  const consumed = new Set<number>();
+  const answerFor = new Map<number, (typeof rows)[number]>();
+  let lastQuestion: (typeof rows)[number] | null = null;
+  for (const r of [...rows].sort((a, b) => a.id - b.id)) {
+    if (r.role === "question") lastQuestion = r;
+    else if (r.role === "assistant" && lastQuestion && !answerFor.has(lastQuestion.id)) {
+      answerFor.set(lastQuestion.id, r);
+      consumed.add(r.id);
+    }
+  }
+  const messages = rows.filter((r) => !consumed.has(r.id));
+
   return Response.json({
     messages: messages.map((m) => ({
+      answer: answerFor.has(m.id)
+        ? { text: answerFor.get(m.id)!.raw_text, createdAt: answerFor.get(m.id)!.created_at }
+        : null,
       id: m.id,
       createdAt: m.created_at,
       source: m.source,
@@ -52,7 +70,7 @@ export async function messagesData(env: Env, params: URLSearchParams): Promise<R
         notes: e.notes,
       })),
     })),
-    nextBefore: messages.length === limit ? messages[messages.length - 1].id : null,
+    nextBefore: rows.length === limit ? rows[rows.length - 1].id : null,
   });
 }
 
@@ -189,6 +207,12 @@ export function dashboardPage(key: string): Response {
   #askInput { flex: 1; padding: .55rem .8rem; border-radius: 12px; border: 1px solid var(--line); background: none; color: inherit; font-size: 1rem; }
   .del { float: right; border: none; background: none; color: inherit; opacity: .35; cursor: pointer; font-size: .9rem; padding: 0 .2rem; }
   .del:hover { opacity: 1; color: #ef5350; }
+  .tog { border: none; background: none; color: inherit; opacity: .5; cursor: pointer; padding: 0 .35rem 0 0; font-size: .8rem; }
+  .tog::before { content: '▸'; } .card.open .tog::before { content: '▾'; }
+  .preview { cursor: pointer; margin-top: .25rem; }
+  .preview .digest { margin-top: .3rem; font-size: .82rem; opacity: .8; }
+  .card.open .preview { display: none; }
+  .card .detail { display: none; } .card.open .detail { display: block; margin-top: .35rem; }
   .md p { margin: .4rem 0; } .md ul, .md ol { margin: .3rem 0; padding-left: 1.3rem; }
   .md h1, .md h2, .md h3 { font-size: 1rem; margin: .6rem 0 .2rem; }
   .md code { background: #8882; border-radius: 4px; padding: 0 .25rem; font-size: .85em; }
@@ -277,10 +301,37 @@ async function loadFeed(reset) {
   moreBtn.hidden = !nextBefore;
 }
 
+function moodDot(avg) { return avg <= 3 ? '🔴' : avg <= 5 ? '🟠' : avg <= 7 ? '🟡' : '🟢'; }
+
 function renderMessage(m) {
   const card = document.createElement('div');
   card.className = 'card';
   const when = new Date(m.createdAt * 1000).toLocaleString([], {weekday:'short', month:'numeric', day:'numeric', hour:'numeric', minute:'2-digit'});
+
+  // --- collapsed preview: first words + extraction digest ---
+  const allWords = (m.rawText || '').split(/\\s+/).filter(Boolean);
+  const previewText = allWords.length
+    ? esc(allWords.slice(0, 16).join(' ')) + (allWords.length > 16 ? ' …' : '')
+    : (m.r2Key && m.r2Key.startsWith('photo/') ? '📷 (photo)' : '<em>(no text)</em>');
+  const counts = {}; const moods = []; const energies = [];
+  for (const e of m.entries) {
+    counts[e.category] = (counts[e.category] || 0) + 1;
+    if (e.mood != null) moods.push(e.mood);
+    if (e.energy != null) energies.push(e.energy);
+  }
+  const avg = xs => xs.length ? Math.round(xs.reduce((a,b)=>a+b,0)/xs.length*10)/10 : null;
+  const moodAvg = avg(moods), energyAvg = avg(energies);
+  const digestBits = [];
+  if (m.entries.length) {
+    digestBits.push(m.entries.length + (m.entries.length === 1 ? ' entry' : ' entries') + ' · ' +
+      Object.entries(counts).map(([c,n]) => (CAT_ICON[c]||CAT_ICON.other) + (n>1 ? '×'+n : '')).join(' ') +
+      (moodAvg != null ? ' · ' + moodDot(moodAvg) + ' mood Ø' + moodAvg : '') +
+      (energyAvg != null ? ' · ⚡ Ø' + energyAvg : ''));
+  }
+  if (m.answer) digestBits.push('🤖 answered');
+  const digest = digestBits.length ? '<div class="digest">' + digestBits.join(' · ') + '</div>' : '';
+
+  // --- expanded detail: full transcript/karaoke, media, delivery, entries ---
   const text = (m.words && m.words.length)
     ? '<div class="transcript">' + m.words.map(w => '<span class="w" data-s="' + w.start + '" data-e="' + w.end + '">' + esc(w.word) + '</span>').join(' ') + '</div>'
     : (m.rawText ? '<div>' + esc(m.rawText) + '</div>' : '<em>(no text)</em>');
@@ -299,11 +350,20 @@ function renderMessage(m) {
     ((e.mood != null || e.energy != null) ? ' <em class="meta">(' + [e.mood != null ? 'mood ' + e.mood : null, e.energy != null ? 'energy ' + e.energy : null].filter(Boolean).join(', ') + ')</em>' : '') +
     (e.entities.length ? '<div class="meta">' + e.entities.map(esc).join(' · ') + '</div>' : '') +
     '</div>').join('');
+
   const src = m.source.replace('telegram_','');
   card.innerHTML = '<div class="meta">' +
     '<button class="del delM" data-mid="' + m.id + '" title="Delete message + its entries">✕</button>' +
-    when + ' · <span class="badge">' + (SRC_ICON[src]||'') + ' ' + esc(src) + '</span><span class="badge">' + (ROLE_ICON[m.role]||'') + ' ' + esc(m.role) + '</span></div>'
-    + text + media + delivery + (entries ? '<div style="margin-top:.5rem">' + entries + '</div>' : '');
+    '<button class="tog" title="Expand/collapse"></button>' +
+    when + ' · <span class="badge">' + (SRC_ICON[src]||'') + ' ' + esc(src) + '</span><span class="badge">' + (ROLE_ICON[m.role]||'') + ' ' + esc(m.role) + '</span></div>' +
+    '<div class="preview">' + previewText + digest + '</div>' +
+    '<div class="detail">' + text + media + delivery +
+    (m.answer ? '<div class="msg a md" style="max-width:100%;margin-top:.5rem">' + md(m.answer.text) + '</div>' : '') +
+    (entries ? '<div style="margin-top:.5rem">' + entries + '</div>' : '') + '</div>';
+
+  // expand/collapse — preview click or chevron; not the delete buttons
+  card.querySelector('.preview').addEventListener('click', () => card.classList.add('open'));
+  card.querySelector('.tog').addEventListener('click', () => card.classList.toggle('open'));
 
   // karaoke wiring
   const audio = card.querySelector('audio');
@@ -393,5 +453,12 @@ loadFeed(true);
 </script>
 </body>
 </html>`;
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+  return new Response(html, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      // The app shell must never be cached — stale JS against a newer API
+      // causes confusing bugs (e.g. broken pagination cursors).
+      "cache-control": "no-store",
+    },
+  });
 }
