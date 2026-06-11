@@ -104,7 +104,7 @@ Rules:
 - entities: the concrete nouns worth correlating later (foods, people, places, activities).
 - mood and energy: integers 1-10, ONLY when the user actually expresses them (explicitly or very clearly implied). Otherwise null. Do not invent scores.
 - notes: anything contextual that doesn't fit the summary, else null.
-- For photos: describe what's depicted (e.g. the meal) as the entry; combine with any caption.
+- For photos: describe what's clearly depicted; combine with any caption. Read visible labels carefully and only name a specific product or brand when it's actually legible. If an item is ambiguous, describe what you can see ("small yellow tube, product unclear") rather than guessing — and only create food entries for things that are clearly food. Not everything photographed near food is food.
 - If the input contains nothing journal-worthy, return an empty entries array.
 
 Separately, report "delivery" — HOW the message reads, not what it says. This is a subtle signal of internal state worth tracking over time.
@@ -129,7 +129,9 @@ export async function extractEntries(
   content.push({ type: "text", text: text?.trim() ? text : "(no text — see image)" });
 
   const response = await client(env).messages.create({
-    model: EXTRACT_MODEL,
+    // Image extraction needs the stronger model — reading product labels in
+    // photos is where the cheap tier reliably misfires. Photos are low-volume.
+    model: image ? ANALYSIS_MODEL : EXTRACT_MODEL,
     max_tokens: 2048,
     system: EXTRACTION_SYSTEM,
     messages: [{ role: "user", content }],

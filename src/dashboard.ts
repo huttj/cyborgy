@@ -13,6 +13,7 @@ import {
 } from "./db";
 import { extractEntries } from "./llm";
 import { transcribe } from "./pipeline";
+import { arrayBufferToBase64 } from "./telegram-api";
 import { answerWithContext } from "./bot";
 import { dailyMoodEnergySeries } from "./scheduled";
 
@@ -134,13 +135,46 @@ export async function reprocessMessage(
       .bind(text, transcription.words ? JSON.stringify(transcription.words) : null, id)
       .run();
   }
-  if (!text) return Response.json({ ok: false, error: "message has no text" }, { status: 400 });
+
+  // Photo messages re-extract from the archived image (plus caption, if any).
+  let image: { base64: string; mediaType: "image/jpeg" } | undefined;
+  if (msg.r2_key?.startsWith("photo/")) {
+    const object = await env.MEDIA.get(msg.r2_key);
+    if (object) {
+      image = {
+        base64: arrayBufferToBase64(await object.arrayBuffer()),
+        mediaType: "image/jpeg",
+      };
+    }
+  }
+  if (!text && !image) {
+    return Response.json({ ok: false, error: "message has no text or image" }, { status: 400 });
+  }
 
   await deleteEntriesForMessage(env, id);
-  const { entries, delivery } = await extractEntries(env, text);
+  const { entries, delivery } = await extractEntries(env, text, image);
   await insertEntries(env, id, msg.created_at, entries);
   await setMessageDelivery(env, id, delivery, msg.wps);
-  return Response.json({ ok: true, retranscribed: retranscribe, text, entries, delivery });
+
+  // Return the stored rows (with ids) so the UI can keep per-entry controls live.
+  const rows = await env.DB.prepare(`SELECT * FROM entries WHERE message_id = ? ORDER BY id`)
+    .bind(id)
+    .all<{ id: number; category: string; summary: string; entities: string; mood: number | null; energy: number | null; notes: string | null }>();
+  return Response.json({
+    ok: true,
+    retranscribed: retranscribe,
+    text,
+    delivery,
+    entries: rows.results.map((e) => ({
+      id: e.id,
+      category: e.category,
+      summary: e.summary,
+      entities: JSON.parse(e.entities) as string[],
+      mood: e.mood,
+      energy: e.energy,
+      notes: e.notes,
+    })),
+  });
 }
 
 /** Delete a message and its entries (R2 media is left in place). */

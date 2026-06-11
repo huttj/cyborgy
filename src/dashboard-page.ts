@@ -74,6 +74,9 @@ export function dashboardPage(key: string): Response {
   .prate:hover { opacity: 1; }
 
   img.ph { max-width: 280px; border-radius: 4px; margin-top: .4rem; }
+  img.thumb { display: block; max-height: 64px; border-radius: 3px; margin-top: .35rem; }
+  .entry .delE { float: none; flex: none; align-self: center; }
+  .entry .delE .icon { width: 13px; height: 13px; }
   #more { display: block; margin: 1rem auto; }
   button.std { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .4rem 1rem; cursor: pointer; }
 
@@ -263,8 +266,9 @@ function renderMessage(m) {
   const allWords = stripMd(m.rawText).split(/\\s+/).filter(Boolean);
   let previewText = allWords.length
     ? esc(allWords.slice(0, 16).join(' ')) + (allWords.length > 16 ? ' …' : '')
-    : (isPhoto ? '(photo)' : '<em>(no text)</em>');
+    : (isPhoto ? '' : '<em>(no text)</em>');
   if (m.role === 'question') previewText = '<span class="qtext">' + previewText + '</span>';
+  if (isPhoto) previewText += '<img class="thumb" loading="lazy" src="/media/' + encodeURIComponent(m.r2Key) + '?key=' + encodeURIComponent(KEY) + '">';
   const digestBits = [];
   if (m.entries.length) digestBits.push('<span>' + m.entries.length + (m.entries.length === 1 ? ' entry' : ' entries') + '</span>');
   if (m.answer) {
@@ -280,7 +284,7 @@ function renderMessage(m) {
   // expanded detail: transcript + player, then a divider, then the AI material
   let text = (m.words && m.words.length)
     ? '<div class="transcript">' + m.words.map(w => '<span class="w" data-s="' + w.start + '" data-e="' + w.end + '">' + esc(w.word) + '</span>').join(' ') + '</div>'
-    : (m.rawText ? '<div>' + esc(m.rawText) + '</div>' : '<em>(no text)</em>');
+    : (m.rawText ? '<div>' + esc(m.rawText) + '</div>' : (isPhoto ? '' : '<em>(no text)</em>'));
   if (m.role === 'question') text = '<div class="qfull">' + text + '</div>';
   const media = m.r2Key
     ? (isPhoto
@@ -297,7 +301,9 @@ function renderMessage(m) {
     '<span class="catbadge" style="border-color:' + (CAT[e.category]||CAT.other) + ';color:' + (CAT[e.category]||CAT.other) + '">' + icon(CAT_IC[e.category] || 'tag') + esc(e.category) + '</span>' +
     '<span class="esum">' + esc(e.summary) +
     ((e.mood != null || e.energy != null) ? ' <em class="meta">(' + [e.mood != null ? 'mood ' + e.mood : null, e.energy != null ? 'energy ' + e.energy : null].filter(Boolean).join(', ') + ')</em>' : '') +
-    '</span></div>').join('');
+    '</span>' +
+    (e.id != null ? '<button class="del delE" data-eid="' + e.id + '" title="Delete this entry">' + icon('trash') + '</button>' : '') +
+    '</div>').join('');
   // divider goes BEFORE the AI material (delivery analysis + extraction)
   const aiblock = (delivery || entryRows)
     ? '<div class="aiblock">' + delivery + (entryRows ? '<div style="margin-top:.4rem">' + entryRows + '</div>' : '') + '</div>'
@@ -308,7 +314,7 @@ function renderMessage(m) {
     '<div class="box">' +
       '<div class="head meta">' +
         '<button class="del delM" data-mid="' + m.id + '" title="Delete message + its entries">' + icon('trash') + '</button>' +
-        (m.role === 'entry' && m.rawText ? '<button class="del rex" title="Re-run extraction">' + icon('refresh') + '</button>' : '') +
+        (m.role === 'entry' && (m.rawText || isPhoto) ? '<button class="del rex" title="Re-run extraction">' + icon('refresh') + '</button>' : '') +
         '<button class="tog" title="Expand/collapse">' + icon('chev') + '</button>' +
         when + ' · <span class="badge">' + esc(src) + '</span>' +
       '</div>' +
@@ -390,12 +396,16 @@ function renderMessage(m) {
   return card;
 }
 
-// Message delete (single top-level control; per-entry deletes removed by design).
+// Deletes: whole message, or a single extracted entry.
 feed.addEventListener('click', async e => {
   const delM = e.target.closest('.delM');
+  const delE = e.target.closest('.delE');
   if (delM && confirm('Delete this message and all its entries?')) {
     await api('/api/admin/messages?id=' + delM.dataset.mid, { method: 'DELETE' });
     delM.closest('.card').remove();
+  } else if (delE && confirm('Delete this entry?')) {
+    await api('/api/admin/entries?id=' + delE.dataset.eid, { method: 'DELETE' });
+    delE.closest('.entry').remove();
   }
 });
 
