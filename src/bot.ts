@@ -6,6 +6,8 @@ import { downloadTelegramFile, arrayBufferToBase64 } from "./telegram-api";
 import {
   insertMessage,
   getMessage,
+  getMessageByTelegramId,
+  entryCountForMessage,
   setMessageRole,
   setMessageDelivery,
   deleteEntriesForMessage,
@@ -20,7 +22,11 @@ const DAY = 86400;
 const ANSWER_CONTEXT_DAYS = 14;
 
 export function createBot(env: Env): Bot {
-  const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
+  // Webhook replies are disabled because the webhook route ACKs before the
+  // handler finishes — an API call piggybacked on that response would be lost.
+  const bot = new Bot(env.TELEGRAM_BOT_TOKEN, {
+    client: { canUseWebhookReply: () => false },
+  });
 
   bot.catch((err) => console.error("bot error:", err.message, err.error));
 
@@ -57,6 +63,7 @@ export function createBot(env: Env): Bot {
   });
 
   bot.on("message:voice", async (ctx) => {
+    if (await handleRetry(env, ctx)) return;
     await ctx.react("👀").catch(() => {});
     try {
       const voice = ctx.message.voice;
@@ -77,6 +84,7 @@ export function createBot(env: Env): Bot {
   });
 
   bot.on("message:photo", async (ctx) => {
+    if (await handleRetry(env, ctx)) return;
     await ctx.react("👀").catch(() => {});
     try {
       // Largest size is last in the array.
@@ -109,6 +117,7 @@ export function createBot(env: Env): Bot {
 
   bot.on("message:text", async (ctx) => {
     try {
+      if (await handleRetry(env, ctx)) return;
       await routeMessage(env, ctx, ctx.message.text, "telegram_text");
     } catch (err) {
       console.error("text handler failed", err);
@@ -154,6 +163,34 @@ function rerouteKeyboard(to: Intent, messageId: number): InlineKeyboard {
   return to === "question"
     ? new InlineKeyboard().text("↩️ Answer as question instead", `as_q:${messageId}`)
     : new InlineKeyboard().text("📝 Save as entry too", `as_e:${messageId}`);
+}
+
+/**
+ * Telegram redelivers updates that weren't ACKed in time, so handlers must be
+ * idempotent. If this message was already (partially) processed: finish the
+ * job when extraction never ran, otherwise just confirm and stop.
+ * Returns true when the update was a retry and has been dealt with.
+ */
+async function handleRetry(env: Env, ctx: Context): Promise<boolean> {
+  const tgId = ctx.message?.message_id;
+  if (tgId == null) return false;
+  const existing = await getMessageByTelegramId(env, tgId);
+  if (!existing) return false;
+
+  if (existing.role === "entry" && existing.raw_text) {
+    const entryCount = await entryCountForMessage(env, existing.id);
+    if (entryCount === 0) {
+      // First attempt died between saving the raw message and extraction — heal it.
+      const { entries, delivery } = await extractEntries(env, existing.raw_text);
+      await insertEntries(env, existing.id, existing.created_at, entries);
+      await setMessageDelivery(env, existing.id, delivery, existing.wps);
+      await ctx.reply(confirmationText(entries), {
+        reply_markup: rerouteKeyboard("question", existing.id),
+      });
+    }
+  }
+  await ctx.react("👍").catch(() => {});
+  return true;
 }
 
 /** The routing layer: replies to the bot are conversation; otherwise classify. */

@@ -54,6 +54,19 @@ export async function getMessage(env: Env, id: number): Promise<MessageRow | nul
   return env.DB.prepare(`SELECT * FROM messages WHERE id = ?`).bind(id).first<MessageRow>();
 }
 
+export async function getMessageByTelegramId(env: Env, tgId: number): Promise<MessageRow | null> {
+  return env.DB.prepare(`SELECT * FROM messages WHERE telegram_message_id = ?`)
+    .bind(tgId)
+    .first<MessageRow>();
+}
+
+export async function entryCountForMessage(env: Env, messageId: number): Promise<number> {
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM entries WHERE message_id = ?`)
+    .bind(messageId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 export async function setMessageRole(env: Env, id: number, role: string): Promise<void> {
   await env.DB.prepare(`UPDATE messages SET role = ? WHERE id = ?`).bind(role, id).run();
 }

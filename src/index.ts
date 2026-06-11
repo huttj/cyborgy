@@ -10,13 +10,23 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Telegram webhook (secret validated by grammY via secretToken).
+    // Telegram webhook. ACK immediately and process in the background —
+    // the pipeline (Whisper + extraction + replies) can exceed both grammY's
+    // 10s handler timeout and Telegram's webhook patience, which causes
+    // retries and duplicate processing if we respond only when done.
     if (url.pathname === "/webhook" && request.method === "POST") {
+      if (
+        request.headers.get("x-telegram-bot-api-secret-token") !== env.TELEGRAM_WEBHOOK_SECRET
+      ) {
+        return new Response("unauthorized", { status: 401 });
+      }
       const bot = createBot(env);
       const handler = webhookCallback(bot, "cloudflare-mod", {
         secretToken: env.TELEGRAM_WEBHOOK_SECRET,
+        timeoutMilliseconds: 25_000,
       });
-      return handler(request);
+      ctx.waitUntil(handler(request).catch((err) => console.error("webhook processing:", err)));
+      return new Response("ok");
     }
 
     // Apple Watch / iPhone Shortcut: Dictate Text -> POST here.
@@ -44,6 +54,16 @@ export default {
 
     // Dashboard + admin feed (personal data — gated by key).
     const key = url.searchParams.get("key");
+    // Debug: which bot does our token belong to, and is the webhook healthy?
+    if (url.pathname === "/api/debug/telegram" && request.method === "GET") {
+      if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
+      const api = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}`;
+      const [me, webhook] = await Promise.all([
+        fetch(`${api}/getMe`).then((r) => r.json()),
+        fetch(`${api}/getWebhookInfo`).then((r) => r.json()),
+      ]);
+      return Response.json({ me, webhook, authorizedUserId: env.AUTHORIZED_USER_ID });
+    }
     if (url.pathname === "/api/dashboard" && request.method === "GET") {
       if (key !== env.DASHBOARD_KEY) return new Response("unauthorized", { status: 401 });
       return dashboardData(env);

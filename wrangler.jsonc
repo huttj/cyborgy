@@ -30,6 +30,9 @@
   "triggers": { "crons": ["0 * * * *"] },
 
   "routes": [{ "pattern": "cyborgy.app", "custom_domain": true }],
+  // Keep workers.dev alive alongside the custom domain — the Telegram webhook
+  // targets it (DNS-independent), and attaching routes disables it by default.
+  "workers_dev": true,
 
   "vars": {
     "TIMEZONE": "America/Los_Angeles",
