@@ -28,20 +28,23 @@ export function dashboardPage(key: string | null): Response {
 
   .icon { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; flex: none; }
 
-  /* cards: box aligns with the search bar; type/stat columns float in the
-     page margins on wide screens, fall back inline on narrow ones */
-  .card { position: relative; display: flex; gap: .55rem; margin: .9rem 0; align-items: flex-start; }
-  .typecol, .statcol { display: flex; flex-direction: column; gap: .5rem; align-items: center; min-width: 1.6rem; padding-top: .6rem; }
-  .statcol { gap: .65rem; }
+  /* cards: on mobile the type icon + mood/energy sit in a row ABOVE the box;
+     on wide screens they float in the page margins and the box aligns with
+     the search bar */
+  .card { position: relative; display: grid; grid-template-columns: auto 1fr; grid-template-areas: "type stats" "box box"; row-gap: .3rem; margin: .9rem 0; align-items: center; }
+  .typecol, .statcol { display: flex; align-items: center; }
+  .typecol { grid-area: type; gap: .5rem; }
+  .statcol { grid-area: stats; justify-content: flex-end; gap: .9rem; }
   .typecol .icon { width: 17px; height: 17px; opacity: .65; }
-  .stat { display: flex; flex-direction: column; align-items: center; line-height: 1.1; gap: 1px; }
+  .stat { display: flex; flex-direction: row; align-items: center; line-height: 1.1; gap: .25rem; }
   .stat .icon { width: 17px; height: 17px; }
   .stat b { font-size: .68rem; opacity: .7; font-weight: 600; }
-  .box { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 4px; padding: .65rem .85rem; }
+  .box { grid-area: box; min-width: 0; border: 1px solid var(--line); border-radius: 4px; padding: .65rem .85rem; }
   @media (min-width: 880px) {
     .card { display: block; }
-    .typecol { position: absolute; right: calc(100% + .7rem); top: 0; }
-    .statcol { position: absolute; left: calc(100% + .7rem); top: 0; }
+    .typecol { position: absolute; right: calc(100% + .7rem); top: 0; flex-direction: column; gap: .5rem; padding-top: .6rem; }
+    .statcol { position: absolute; left: calc(100% + .7rem); top: 0; flex-direction: column; gap: .65rem; padding-top: .6rem; }
+    .stat { flex-direction: column; gap: 1px; }
   }
 
   .meta { opacity: .55; font-size: .78rem; }
@@ -50,6 +53,13 @@ export function dashboardPage(key: string | null): Response {
   .entry { padding: .25rem 0; margin: .35rem 0; font-size: .85rem; display: flex; align-items: flex-start; gap: .5rem; }
   .entry .catbadge { margin-top: 1px; }
   .entry .esum { flex: 1; min-width: 0; }
+  @media (max-width: 879px) {
+    /* pill above the text, delete top-right, text full width below */
+    .entry { display: grid; grid-template-columns: 1fr auto; column-gap: .5rem; row-gap: .15rem; }
+    .entry .catbadge { grid-row: 1; grid-column: 1; justify-self: start; }
+    .entry .delE { grid-row: 1; grid-column: 2; }
+    .entry .esum { grid-row: 2; grid-column: 1 / -1; }
+  }
   .catbadge { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; border-radius: 3px; padding: .05rem 0; font-size: .75rem; border: 1px solid; width: 5.4rem; flex: none; }
   .catrow { display: flex; gap: .55rem; margin-top: .45rem; }
   .catrow .icon { width: 15px; height: 15px; }
