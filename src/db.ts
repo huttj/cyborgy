@@ -237,7 +237,7 @@ export async function queryMessagesWithEntries(
 // --- auth: one-time login tokens + session cookies ---
 
 const LOGIN_TOKEN_TTL = 600; // 10 minutes
-const SESSION_DAYS = 365;
+const SESSION_DAYS = 30;
 
 function randomToken(): string {
   return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");

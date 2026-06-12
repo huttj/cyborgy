@@ -110,8 +110,8 @@ export default {
         status: 302,
         headers: {
           location: "/",
-          // 400 days is the browser maximum; the DB session slides on every use.
-          "set-cookie": `${SESSION_COOKIE}=${session}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${400 * 86400}`,
+          // DB session slides on every use, so active use never logs out.
+          "set-cookie": `${SESSION_COOKIE}=${session}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30 * 86400}`,
         },
       });
     }
