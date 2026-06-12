@@ -10,8 +10,15 @@ import {
   logPing,
   saveReport,
   purgeExpiredAuth,
+  insertMessage,
   now,
 } from "./db";
+
+/** Send to Telegram AND record in the feed so outbound messages show in the UI. */
+async function broadcast(env: Env, text: string): Promise<void> {
+  await sendToUser(env, text);
+  await insertMessage(env, { source: "bot", role: "broadcast", rawText: text });
+}
 import type { Delivery } from "./types";
 
 const DAY = 86400;
@@ -91,7 +98,7 @@ async function maybePing(env: Env): Promise<void> {
   if (Math.random() > PING_PROBABILITY) return;
 
   const prompt = PING_PROMPTS[Math.floor(Math.random() * PING_PROMPTS.length)];
-  await sendToUser(env, prompt);
+  await broadcast(env, prompt);
   await logPing(env, "ping");
 }
 
@@ -102,15 +109,12 @@ async function runDailyRecap(env: Env): Promise<void> {
 
   const todayEntries = await entriesSince(env, midnight);
   if (todayEntries.length === 0) {
-    await sendToUser(
-      env,
-      "No entries today 🌙 Want to voice-note a quick recap of your day before bed?",
-    );
+    await broadcast(env, "No entries today 🌙 Want to voice-note a quick recap of your day before bed?");
     await logPing(env, "daily_recap");
     return;
   }
   const recap = await writeDailyRecap(env, todayEntries);
-  await sendToUser(env, recap);
+  await broadcast(env, recap);
   await saveReport(env, "daily", midnight, now(), recap, null);
   await logPing(env, "daily_recap");
 }
@@ -123,7 +127,7 @@ async function runWeeklyRecap(env: Env): Promise<void> {
   const lastWeek = await entriesSince(env, t - 14 * DAY, t - 7 * DAY);
 
   if (thisWeek.length === 0) {
-    await sendToUser(env, "No entries this week, so no analysis — let's change that next week 💪");
+    await broadcast(env, "No entries this week, so no analysis — let's change that next week 💪");
     await logPing(env, "weekly_recap");
     return;
   }
@@ -140,7 +144,7 @@ async function runWeeklyRecap(env: Env): Promise<void> {
   if (chartUrl) {
     await sendPhotoToUser(env, chartUrl, "📊 Your week in mood & energy");
   }
-  await sendToUser(env, `${report}\n\n📈 Full dashboard: ${dashboardUrl}`);
+  await broadcast(env, `${report}\n\n📈 Full dashboard: ${dashboardUrl}`);
   await logPing(env, "weekly_recap");
 }
 

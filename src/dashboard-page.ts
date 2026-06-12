@@ -259,7 +259,7 @@ function renderMessage(m) {
   const src = m.source.replace('telegram_','');
 
   // LEFT column: one message-type icon (question/voice/text/photo/assistant/…)
-  const typeName = m.role === 'question' ? 'help' : m.role === 'assistant' ? 'bot' : (SRC_IC[src] || 'chat');
+  const typeName = m.role === 'question' ? 'help' : (m.role === 'assistant' || m.role === 'broadcast') ? 'bot' : (SRC_IC[src] || 'chat');
   const typecol = '<div class="typecol" title="' + esc(m.role === 'entry' ? src : m.role) + '">' + icon(typeName) + '</div>';
 
   // RIGHT column: mood/energy averages, icon colored by value + number
@@ -299,7 +299,7 @@ function renderMessage(m) {
   let text = (m.words && m.words.length)
     ? '<div class="transcript">' + m.words.map(w => '<span class="w" data-s="' + w.start + '" data-e="' + w.end + '">' + esc(w.word) + '</span>').join(' ') + '</div>'
     : (m.rawText
-        ? (m.role === 'assistant' ? '<div class="md">' + md(m.rawText) + '</div>' : '<div>' + esc(m.rawText) + '</div>')
+        ? ((m.role === 'assistant' || m.role === 'broadcast') ? '<div class="md">' + md(m.rawText) + '</div>' : '<div>' + esc(m.rawText) + '</div>')
         : (isPhoto ? '' : '<em>(no text)</em>'));
   if (m.role === 'question') text = '<div class="qfull">' + text + '</div>';
   const media = m.r2Key

@@ -100,6 +100,7 @@ const EXTRACTION_SYSTEM = `You extract structured journal entries from a persona
 
 Rules:
 - Split the input into distinct entries: each meal, workout, activity, social interaction, mood statement, or notable thought is its own entry.
+- Prefer FEWER, consolidated entries: one entry per distinct event or moment, not per item. Food and drink consumed together is ONE entry — summary describes the meal ("lunch: sandwich, chips, iced tea"), entities list each item. Only split food into separate entries when the message describes clearly separate eating moments with distinct timing or effects (e.g. "first coffee felt great" vs "second coffee made me jittery").
 - summary: one concise line, third person omitted ("oatmeal with blueberries", "ran 5k along the river", "frustrated about the deploy").
 - entities: the concrete nouns worth correlating later (foods, people, places, activities).
 - mood and energy: integers 1-10, ONLY when the user actually expresses them (explicitly or very clearly implied). Otherwise null. Do not invent scores.

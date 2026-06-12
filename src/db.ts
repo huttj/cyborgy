@@ -237,7 +237,7 @@ export async function queryMessagesWithEntries(
 // --- auth: one-time login tokens + session cookies ---
 
 const LOGIN_TOKEN_TTL = 600; // 10 minutes
-const SESSION_DAYS = 90;
+const SESSION_DAYS = 365;
 
 function randomToken(): string {
   return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
@@ -273,7 +273,14 @@ export async function sessionValid(env: Env, token: string): Promise<boolean> {
   const row = await env.DB.prepare(`SELECT 1 AS ok FROM sessions WHERE token = ? AND expires_at > ?`)
     .bind(token, now())
     .first();
-  return row != null;
+  if (row != null) {
+    // Sliding window: every use pushes expiry out another year.
+    await env.DB.prepare(`UPDATE sessions SET expires_at = ? WHERE token = ?`)
+      .bind(now() + SESSION_DAYS * 86400, token)
+      .run();
+    return true;
+  }
+  return false;
 }
 
 export async function purgeExpiredAuth(env: Env): Promise<void> {
