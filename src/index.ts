@@ -17,6 +17,17 @@ import { consumeLoginToken, createSession, sessionValid } from "./db";
 
 const SESSION_COOKIE = "cyborgy_session";
 
+// The bot mark from the dashboard icon set, white on the accent terracotta.
+const FAVICON_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">` +
+  `<rect width="24" height="24" rx="5" fill="#e07a5f"/>` +
+  `<g stroke="#fff" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round">` +
+  `<rect x="6" y="10" width="12" height="8" rx="2"/>` +
+  `<circle cx="12" cy="4.8" r="1.5"/>` +
+  `<path d="M12 6.3V10"/>` +
+  `<path d="M9.5 14h.01M14.5 14h.01"/>` +
+  `</g></svg>`;
+
 /** Authorized via session cookie (normal) or ?key= (curl/debug fallback). */
 async function isAuthed(request: Request, env: Env): Promise<boolean> {
   const url = new URL(request.url);
@@ -80,6 +91,13 @@ export default {
       return Response.json({ ok: true, entries: entries.length });
     }
 
+    // Favicon (public; browsers also request /favicon.ico unprompted).
+    if ((url.pathname === "/favicon.svg" || url.pathname === "/favicon.ico") && request.method === "GET") {
+      return new Response(FAVICON_SVG, {
+        headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" },
+      });
+    }
+
     // Telegram /login link → session cookie. GET shows a confirm button and
     // consumes nothing — link-preview crawlers and prefetchers only GET, so
     // the single-use token survives until a human presses the button (POST).
@@ -87,7 +105,7 @@ export default {
       const token = url.searchParams.get("t") ?? "";
       return new Response(
         `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">` +
-          `<meta name="robots" content="noindex">` +
+          `<meta name="robots" content="noindex"><link rel="icon" type="image/svg+xml" href="/favicon.svg">` +
           `<body style="font-family:system-ui;max-width:26rem;margin:20vh auto;text-align:center;line-height:1.6">` +
           `<h1 style="font-size:1.3rem">🤖 cyborgy</h1>` +
           `<form method="POST" action="/auth">` +
@@ -177,6 +195,7 @@ export default {
       if (!authed) {
         return new Response(
           `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">` +
+            `<link rel="icon" type="image/svg+xml" href="/favicon.svg">` +
             `<body style="font-family:system-ui;max-width:26rem;margin:20vh auto;text-align:center;line-height:1.6">` +
             `<h1 style="font-size:1.3rem">🤖 cyborgy</h1>` +
             `<p>Send <b>/login</b> to your Telegram bot and tap the link it replies with to sign in here.</p>`,

@@ -11,6 +11,7 @@ export function dashboardPage(key: string | null): Response {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>cyborgy</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
