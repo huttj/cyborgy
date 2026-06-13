@@ -62,6 +62,8 @@ export function dashboardPage(key: string | null): Response {
     .entry .delE { float: right; margin-left: .4rem; }
   }
   .catbadge { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; border-radius: 3px; padding: .05rem 0; font-size: .75rem; border: 1px solid; width: 5.4rem; flex: none; }
+  /* Review tab: counts ride along, so pills size to content instead */
+  #categories .catbadge { width: auto; padding: .05rem .55rem; white-space: nowrap; margin: 0 .35rem .35rem 0; }
   .catrow { display: flex; gap: .55rem; margin-top: .45rem; }
   .catrow .icon { width: 15px; height: 15px; }
 
