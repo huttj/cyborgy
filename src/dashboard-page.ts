@@ -73,6 +73,9 @@ export function dashboardPage(key: string | null): Response {
   .chip { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .2rem .7rem; font-size: .8rem; cursor: pointer; }
   .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .ctl-group { display: inline-flex; gap: .4rem; margin-right: .7rem; }
+  .chartlegend { display: flex; gap: 1.2rem; justify-content: center; margin-top: .5rem; font-size: .82rem; }
+  .legitem { display: flex; align-items: center; gap: .4rem; }
+  .legsw { width: 40px; height: 12px; border-radius: 3px; }
 
   .w { cursor: pointer; border-radius: 3px; padding: 0 1px; }
   .w:hover { background: #8883; }
@@ -171,6 +174,7 @@ export function dashboardPage(key: string | null): Response {
     <button class="chip" id="errToggle" title="Show min–max range per bucket">± range</button>
   </div>
   <div class="box"><canvas id="moodChart"></canvas></div>
+  <div id="chartLegend" class="chartlegend"></div>
   <h2 style="font-size:1rem">This week by category</h2>
   <div id="categories"></div>
   <h2 style="font-size:1rem">Latest weekly analysis</h2>
@@ -487,6 +491,12 @@ function heightColor(scale, v) {
 // at the top), so the line's color tracks its height smoothly. Built lazily
 // once the chart area exists; falls back to a solid color before first layout
 // and for the legend swatch.
+function gradientCss(scale) {
+  if (!scale) return '#888';
+  const stops = [];
+  for (let i = 0; i <= 4; i++) stops.push(heightColor(scale, 1 + (i / 4) * 9));
+  return 'linear-gradient(90deg,' + stops.join(',') + ')';
+}
 function byHeight(scale, fallback) {
   return {
     borderColor: ctx => {
@@ -532,9 +542,13 @@ async function loadReview() {
     options: {
       animation: false,
       scales: { y: { min: 1, max: 10 } },
-      plugins: { legend: { labels: { filter: i => !i.text.startsWith('_') } } },
+      plugins: { legend: { display: false } }, // custom gradient legend below
     },
   });
+
+  document.getElementById('chartLegend').innerHTML =
+    '<span class="legitem"><span class="legsw" style="background:' + gradientCss(MOOD_SCALE) + '"></span>Mood</span>' +
+    '<span class="legitem"><span class="legsw" style="background:' + gradientCss(ENERGY_SCALE) + '"></span>Energy</span>';
 
   document.getElementById('categories').innerHTML = Object.entries(data.categoryCounts)
     .sort((a, b) => b[1] - a[1])
