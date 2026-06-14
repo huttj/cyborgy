@@ -481,12 +481,21 @@ function heightColor(scale, v) {
   if (!c) { c = scale(t).to('srgb').toString({ format: 'hex' }); colorCache.set(key, c); }
   return c;
 }
-// Scriptable color options: each segment by its midpoint value, each point by its value.
-function byHeight(scale) {
+// A vertical canvas gradient spanning the y-axis (value 1 at the bottom → 10
+// at the top), so the line's color tracks its height smoothly. Built lazily
+// once the chart area exists; falls back to a solid color before first layout
+// and for the legend swatch.
+function byHeight(scale, fallback) {
   return {
-    segment: { borderColor: ctx => heightColor(scale, (ctx.p0.parsed.y + ctx.p1.parsed.y) / 2) },
-    pointBackgroundColor: ctx => heightColor(scale, ctx.parsed.y),
-    pointBorderColor: ctx => heightColor(scale, ctx.parsed.y),
+    borderColor: ctx => {
+      const area = ctx.chart.chartArea;
+      if (!area || !scale) return fallback;
+      const g = ctx.chart.ctx.createLinearGradient(0, area.bottom, 0, area.top);
+      for (let i = 0; i <= 10; i++) g.addColorStop(i / 10, heightColor(scale, 1 + (i / 10) * 9));
+      return g;
+    },
+    pointBackgroundColor: ctx => heightColor(scale, ctx.parsed.y) || fallback,
+    pointBorderColor: ctx => heightColor(scale, ctx.parsed.y) || fallback,
   };
 }
 
@@ -511,8 +520,8 @@ async function loadReview() {
     datasets.push(...band(s.mood, s.moodLo, s.moodHi, CAT.mood));
     datasets.push(...band(s.energy, s.energyLo, s.energyHi, CAT.sleep));
   }
-  datasets.push({ label: 'Mood', data: s.mood, borderColor: CAT.mood, backgroundColor: CAT.mood, spanGaps: true, tension: .3, ...byHeight(MOOD_SCALE) });
-  datasets.push({ label: 'Energy', data: s.energy, borderColor: CAT.sleep, backgroundColor: CAT.sleep, spanGaps: true, tension: .3, ...byHeight(ENERGY_SCALE) });
+  datasets.push({ label: 'Mood', data: s.mood, borderColor: CAT.mood, backgroundColor: CAT.mood, spanGaps: true, tension: .3, ...byHeight(MOOD_SCALE, CAT.mood) });
+  datasets.push({ label: 'Energy', data: s.energy, borderColor: CAT.sleep, backgroundColor: CAT.sleep, spanGaps: true, tension: .3, ...byHeight(ENERGY_SCALE, CAT.sleep) });
 
   if (chart) chart.destroy();
   chart = new Chart(document.getElementById('moodChart'), {
