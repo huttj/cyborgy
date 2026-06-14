@@ -477,7 +477,7 @@ const haveColor = typeof Color !== 'undefined';
 // Vivid endpoints; mood interpolates in OKLCH so it stays saturated through
 // the midpoint (red→magenta→blue) instead of going muddy gray as Lab does.
 const MOOD_SCALE = haveColor ? Color.range('#ff1744', '#2979ff', { space: 'oklch' }) : null;
-const ENERGY_SCALE = haveColor ? Color.range('#9e9e9e', '#00e676', { space: 'lab' }) : null;
+const ENERGY_SCALE = haveColor ? Color.range('#4a4a4a', '#00e676', { space: 'lab' }) : null;
 const colorCache = new Map();
 function heightColor(scale, v) {
   if (!scale || v == null || !isFinite(v)) return undefined;
