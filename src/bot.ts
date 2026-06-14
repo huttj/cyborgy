@@ -1,8 +1,8 @@
 import { Bot, Context, InlineKeyboard } from "grammy";
 import type { Env, Intent } from "./types";
 import { classifyIntent, answerQuestion } from "./llm";
-import { ingestEntry, confirmationText, transcribe } from "./pipeline";
-import { downloadTelegramFile, arrayBufferToBase64, stripMarkdown } from "./telegram-api";
+import { ingestEntry, ingestPhoto, confirmationText, transcribe } from "./pipeline";
+import { downloadTelegramFile, stripMarkdown } from "./telegram-api";
 import {
   insertMessage,
   getMessage,
@@ -11,6 +11,7 @@ import {
   setMessageRole,
   setMessageDelivery,
   setMessageWords,
+  setReplyMessageId,
   deleteEntriesForMessage,
   insertEntries,
   entriesSince,
@@ -109,18 +110,30 @@ export function createBot(env: Env): Bot {
       const r2Key = `photo/${ctx.message.message_id}-${Date.now()}.jpg`;
       await env.MEDIA.put(r2Key, data);
 
-      const caption = ctx.message.caption ?? null;
       // Photos are always entries (nobody asks a question with a food pic).
-      const { messageId, entries } = await ingestEntry(env, {
-        text: caption,
-        source: "telegram_photo",
+      const { messageId, entries, created } = await ingestPhoto(env, {
         telegramMessageId: ctx.message.message_id,
         r2Key,
-        image: { base64: arrayBufferToBase64(data), mediaType: "image/jpeg" },
+        caption: ctx.message.caption ?? null,
+        mediaGroupId: ctx.message.media_group_id ?? null,
       });
-      await ctx.reply(confirmationText(entries), {
-        reply_markup: rerouteKeyboard("question", messageId),
-      });
+
+      const text = confirmationText(entries);
+      const keyboard = rerouteKeyboard("question", messageId);
+      if (created) {
+        // First (or only) photo: send the confirmation and remember it so
+        // later album members can edit this one message instead of spamming.
+        const sent = await ctx.reply(text, { reply_markup: keyboard });
+        await setReplyMessageId(env, messageId, sent.message_id);
+      } else {
+        // Album member: update the existing confirmation in place.
+        const msg = await getMessage(env, messageId);
+        if (msg?.reply_message_id) {
+          await ctx.api
+            .editMessageText(ctx.chat.id, msg.reply_message_id, text, { reply_markup: keyboard })
+            .catch(() => {}); // "message is not modified" etc. — harmless
+        }
+      }
       await ctx.react("👍").catch(() => {});
     } catch (err) {
       console.error("photo handler failed", err);

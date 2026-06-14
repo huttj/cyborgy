@@ -1,7 +1,26 @@
-import type { Env, ExtractedEntry, Delivery, TranscriptWord } from "./types";
+import type { Env, ExtractedEntry, Delivery, Image, TranscriptWord } from "./types";
 import { extractEntries } from "./llm";
-import { insertMessage, insertEntries, setMessageDelivery, now } from "./db";
+import {
+  insertMessage,
+  insertEntries,
+  setMessageDelivery,
+  createOrGetAlbumMessage,
+  addMedia,
+  mediaKeysForMessage,
+  deleteEntriesForMessage,
+  now,
+} from "./db";
 import { arrayBufferToBase64 } from "./telegram-api";
+
+/** Load image keys from R2 as base64 blocks for extraction. */
+export async function loadImages(env: Env, r2Keys: string[]): Promise<Image[]> {
+  const out: Image[] = [];
+  for (const key of r2Keys) {
+    const obj = await env.MEDIA.get(key);
+    if (obj) out.push({ base64: arrayBufferToBase64(await obj.arrayBuffer()), mediaType: "image/jpeg" });
+  }
+  return out;
+}
 
 export interface Transcription {
   text: string;
@@ -60,7 +79,7 @@ export async function ingestEntry(
     source: string;
     telegramMessageId?: number;
     r2Key?: string;
-    image?: { base64: string; mediaType: "image/jpeg" | "image/png" };
+    images?: Image[];
     /** Voice note duration in seconds (from Telegram) — enables words/sec. */
     durationSec?: number;
   },
@@ -72,13 +91,71 @@ export async function ingestEntry(
     rawText: input.text,
     r2Key: input.r2Key,
   });
-  const { entries, delivery } = await extractEntries(env, input.text, input.image);
+  const { entries, delivery } = await extractEntries(env, input.text, input.images);
   await insertEntries(env, messageId, now(), entries);
 
   const wps = wordsPerSecond(input.text, input.durationSec);
   await setMessageDelivery(env, messageId, delivery, wps);
 
   return { messageId, entries, delivery };
+}
+
+export interface PhotoResult extends IngestResult {
+  /** True when this photo created the message (vs. attaching to an album). */
+  created: boolean;
+}
+
+/**
+ * Ingest one photo, grouping album members by media_group_id with no timers:
+ * the first photo creates the message, the rest attach their image to it, and
+ * every photo re-extracts over all images gathered so far — so the last one
+ * to arrive yields the complete result.
+ */
+export async function ingestPhoto(
+  env: Env,
+  input: {
+    telegramMessageId: number;
+    r2Key: string;
+    caption: string | null;
+    mediaGroupId: string | null;
+  },
+): Promise<PhotoResult> {
+  let messageId: number;
+  let created: boolean;
+  if (input.mediaGroupId) {
+    const res = await createOrGetAlbumMessage(env, {
+      telegramMessageId: input.telegramMessageId,
+      rawText: input.caption,
+      r2Key: input.r2Key,
+      mediaGroupId: input.mediaGroupId,
+    });
+    messageId = res.id;
+    created = res.created;
+  } else {
+    messageId = await insertMessage(env, {
+      telegramMessageId: input.telegramMessageId,
+      source: "telegram_photo",
+      role: "entry",
+      rawText: input.caption,
+      r2Key: input.r2Key,
+    });
+    created = true;
+  }
+
+  await addMedia(env, messageId, input.telegramMessageId, input.r2Key);
+
+  // Re-extract over every image in the (possibly growing) group.
+  const keys = await mediaKeysForMessage(env, messageId, input.r2Key);
+  const images = await loadImages(env, keys);
+  const msg = await env.DB.prepare(`SELECT raw_text FROM messages WHERE id = ?`)
+    .bind(messageId)
+    .first<{ raw_text: string | null }>();
+  const { entries, delivery } = await extractEntries(env, msg?.raw_text ?? input.caption, images);
+  await deleteEntriesForMessage(env, messageId);
+  await insertEntries(env, messageId, now(), entries);
+  await setMessageDelivery(env, messageId, delivery, null);
+
+  return { messageId, entries, delivery, created };
 }
 
 function wordsPerSecond(text: string | null, durationSec?: number): number | null {

@@ -54,6 +54,91 @@ export async function getMessage(env: Env, id: number): Promise<MessageRow | nul
   return env.DB.prepare(`SELECT * FROM messages WHERE id = ?`).bind(id).first<MessageRow>();
 }
 
+// --- photo albums: group by media_group_id, images in message_media ---
+
+/** Create the album's message if it's the first photo; else return the existing one. */
+export async function createOrGetAlbumMessage(
+  env: Env,
+  m: { telegramMessageId: number; rawText: string | null; r2Key: string; mediaGroupId: string },
+): Promise<{ id: number; created: boolean }> {
+  const created = await env.DB.prepare(
+    `INSERT INTO messages (telegram_message_id, source, role, raw_text, r2_key, media_group_id, created_at)
+     VALUES (?, 'telegram_photo', 'entry', ?, ?, ?, ?)
+     ON CONFLICT(media_group_id) DO NOTHING
+     RETURNING id`,
+  )
+    .bind(m.telegramMessageId, m.rawText, m.r2Key, m.mediaGroupId, now())
+    .first<{ id: number }>();
+  if (created) return { id: created.id, created: true };
+
+  const existing = await env.DB.prepare(`SELECT id, raw_text FROM messages WHERE media_group_id = ?`)
+    .bind(m.mediaGroupId)
+    .first<{ id: number; raw_text: string | null }>();
+  // The caption rides on one photo of the group — capture it whoever carries it.
+  if (m.rawText && !existing!.raw_text) {
+    await env.DB.prepare(`UPDATE messages SET raw_text = ? WHERE id = ?`)
+      .bind(m.rawText, existing!.id)
+      .run();
+  }
+  return { id: existing!.id, created: false };
+}
+
+export async function addMedia(
+  env: Env,
+  messageId: number,
+  telegramMessageId: number,
+  r2Key: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO message_media (message_id, telegram_message_id, r2_key, created_at)
+     VALUES (?, ?, ?, ?)`,
+  )
+    .bind(messageId, telegramMessageId, r2Key, now())
+    .run();
+}
+
+/** All image keys for a message, oldest first; falls back to messages.r2_key. */
+export async function mediaKeysForMessage(
+  env: Env,
+  messageId: number,
+  fallback?: string | null,
+): Promise<string[]> {
+  const res = await env.DB.prepare(
+    `SELECT r2_key FROM message_media WHERE message_id = ? ORDER BY id`,
+  )
+    .bind(messageId)
+    .all<{ r2_key: string }>();
+  if (res.results.length) return res.results.map((r) => r.r2_key);
+  return fallback ? [fallback] : [];
+}
+
+/** Batched media lookup for the feed: message id → image keys. */
+export async function mediaByMessageIds(
+  env: Env,
+  ids: number[],
+): Promise<Map<number, string[]>> {
+  const map = new Map<number, string[]>();
+  if (ids.length === 0) return map;
+  const placeholders = ids.map(() => "?").join(",");
+  const res = await env.DB.prepare(
+    `SELECT message_id, r2_key FROM message_media WHERE message_id IN (${placeholders}) ORDER BY id`,
+  )
+    .bind(...ids)
+    .all<{ message_id: number; r2_key: string }>();
+  for (const r of res.results) {
+    const list = map.get(r.message_id) ?? [];
+    list.push(r.r2_key);
+    map.set(r.message_id, list);
+  }
+  return map;
+}
+
+export async function setReplyMessageId(env: Env, id: number, replyId: number): Promise<void> {
+  await env.DB.prepare(`UPDATE messages SET reply_message_id = ? WHERE id = ?`)
+    .bind(replyId, id)
+    .run();
+}
+
 export async function getMessageByTelegramId(env: Env, tgId: number): Promise<MessageRow | null> {
   return env.DB.prepare(`SELECT * FROM messages WHERE telegram_message_id = ?`)
     .bind(tgId)

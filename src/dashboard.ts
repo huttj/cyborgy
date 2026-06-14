@@ -3,6 +3,8 @@ import {
   entriesSince,
   latestReport,
   queryMessagesWithEntries,
+  mediaByMessageIds,
+  mediaKeysForMessage,
   getMessage,
   deleteEntriesForMessage,
   deleteEntry,
@@ -12,8 +14,7 @@ import {
   now,
 } from "./db";
 import { extractEntries } from "./llm";
-import { transcribe } from "./pipeline";
-import { arrayBufferToBase64 } from "./telegram-api";
+import { transcribe, loadImages } from "./pipeline";
 import { answerWithContext } from "./bot";
 import { dailyMoodEnergySeries } from "./scheduled";
 
@@ -46,6 +47,7 @@ export async function messagesData(env: Env, params: URLSearchParams): Promise<R
     }
   }
   const messages = rows.filter((r) => !consumed.has(r.id));
+  const mediaMap = await mediaByMessageIds(env, messages.map((m) => m.id));
 
   return Response.json({
     messages: messages.map((m) => ({
@@ -58,6 +60,8 @@ export async function messagesData(env: Env, params: URLSearchParams): Promise<R
       role: m.role,
       rawText: m.raw_text,
       r2Key: m.r2_key,
+      // All image keys (albums); falls back to the single r2_key for old photos.
+      media: mediaMap.get(m.id) ?? (m.r2_key?.startsWith("photo/") ? [m.r2_key] : []),
       wps: m.wps,
       words: m.words_json ? (JSON.parse(m.words_json) as unknown[]) : null,
       delivery: m.delivery_json ? (JSON.parse(m.delivery_json) as Delivery) : null,
@@ -136,23 +140,17 @@ export async function reprocessMessage(
       .run();
   }
 
-  // Photo messages re-extract from the archived image (plus caption, if any).
-  let image: { base64: string; mediaType: "image/jpeg" } | undefined;
-  if (msg.r2_key?.startsWith("photo/")) {
-    const object = await env.MEDIA.get(msg.r2_key);
-    if (object) {
-      image = {
-        base64: arrayBufferToBase64(await object.arrayBuffer()),
-        mediaType: "image/jpeg",
-      };
-    }
-  }
-  if (!text && !image) {
+  // Photo messages re-extract from all archived images in the album.
+  const photoKeys = (
+    await mediaKeysForMessage(env, id, msg.r2_key?.startsWith("photo/") ? msg.r2_key : undefined)
+  ).filter((k) => k.startsWith("photo/"));
+  const images = await loadImages(env, photoKeys);
+  if (!text && images.length === 0) {
     return Response.json({ ok: false, error: "message has no text or image" }, { status: 400 });
   }
 
   await deleteEntriesForMessage(env, id);
-  const { entries, delivery } = await extractEntries(env, text, image);
+  const { entries, delivery } = await extractEntries(env, text, images);
   await insertEntries(env, id, msg.created_at, entries);
   await setMessageDelivery(env, id, delivery, msg.wps);
 

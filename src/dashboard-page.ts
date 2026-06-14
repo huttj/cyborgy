@@ -86,8 +86,12 @@ export function dashboardPage(key: string | null): Response {
   .prate { border: 1px solid var(--line); border-radius: 3px; background: none; color: inherit; opacity: .7; cursor: pointer; font-size: .7rem; padding: .05rem .35rem; flex: none; font-variant-numeric: tabular-nums; }
   .prate:hover { opacity: 1; }
 
-  img.ph { max-width: 280px; border-radius: 4px; margin-top: .4rem; }
-  img.thumb { display: block; max-height: 64px; border-radius: 3px; margin-top: .35rem; }
+  img.ph { max-width: 280px; border-radius: 4px; }
+  .gallery { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
+  .gallery img.ph { max-width: 180px; max-height: 180px; object-fit: cover; }
+  .thumbwrap { position: relative; display: inline-block; margin-top: .35rem; }
+  img.thumb { display: block; max-height: 64px; border-radius: 3px; }
+  .thumbn { position: absolute; right: 3px; bottom: 3px; background: #000a; color: #fff; font-size: .65rem; padding: 0 .3rem; border-radius: 3px; }
   .entry .delE { float: none; flex: none; align-self: center; }
   .entry .delE .icon { width: 13px; height: 13px; }
   #more { display: block; margin: 1rem auto; }
@@ -284,7 +288,11 @@ function renderMessage(m) {
     ? esc(allWords.slice(0, 16).join(' ')) + (allWords.length > 16 ? ' …' : '')
     : (isPhoto ? '' : '<em>(no text)</em>');
   if (m.role === 'question') previewText = '<span class="qtext">' + previewText + '</span>';
-  if (isPhoto) previewText += '<img class="thumb" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(m.r2Key)) + '">';
+  const imgs = (m.media && m.media.length) ? m.media : (isPhoto ? [m.r2Key] : []);
+  if (imgs.length) {
+    previewText += '<span class="thumbwrap"><img class="thumb" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(imgs[0])) + '">' +
+      (imgs.length > 1 ? '<span class="thumbn">+' + (imgs.length - 1) + '</span>' : '') + '</span>';
+  }
   // One digest line: category icons left, entry count pushed to the far right.
   const cats = [...new Set(m.entries.map(e => e.category))];
   let digest = '';
@@ -305,12 +313,12 @@ function renderMessage(m) {
         ? ((m.role === 'assistant' || m.role === 'broadcast') ? '<div class="md">' + md(m.rawText) + '</div>' : '<div>' + esc(m.rawText) + '</div>')
         : (isPhoto ? '' : '<em>(no text)</em>'));
   if (m.role === 'question') text = '<div class="qfull">' + text + '</div>';
-  const media = m.r2Key
-    ? (isPhoto
-        ? '<img class="ph" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(m.r2Key)) + '">'
-        : '<div class="player"><button class="pbtn">' + icon('play') + '</button><div class="ptrack"><div class="pfill"></div></div><span class="ptime">·</span><button class="prate" title="Playback speed">1×</button>' +
-          '<audio preload="metadata" src="' + withKey('/media/' + encodeURIComponent(m.r2Key)) + '"></audio></div>')
-    : '';
+  const media = imgs.length
+    ? '<div class="gallery">' + imgs.map(k => '<img class="ph" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(k)) + '">').join('') + '</div>'
+    : (m.r2Key
+        ? '<div class="player"><button class="pbtn">' + icon('play') + '</button><div class="ptrack"><div class="pfill"></div></div><span class="ptime">·</span><button class="prate" title="Playback speed">1×</button>' +
+          '<audio preload="metadata" src="' + withKey('/media/' + encodeURIComponent(m.r2Key)) + '"></audio></div>'
+        : '');
   const delivery = m.delivery
     ? '<div class="meta">' + icon('mic') + ' ' + m.delivery.tags.map(esc).join(', ') + (m.delivery.note ? ' — ' + esc(m.delivery.note) : '') + (m.wps ? ' · ' + m.wps + ' w/s' : '') + '</div>'
     : (m.wps ? '<div class="meta">' + icon('mic') + ' ' + m.wps + ' w/s</div>' : '');

@@ -61,6 +61,13 @@ export interface MessageRow {
   delivery_json: string | null;
   wps: number | null;
   words_json: string | null;
+  media_group_id: string | null;
+  reply_message_id: number | null;
+}
+
+export interface Image {
+  base64: string;
+  mediaType: "image/jpeg" | "image/png";
 }
 
 export interface EntryRow {

@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Env, ExtractedEntry, ExtractionResult, Intent, EntryRow, MessageRow } from "./types";
+import type { Env, ExtractedEntry, ExtractionResult, Image, Intent, EntryRow, MessageRow } from "./types";
 
 const EXTRACT_MODEL = "claude-haiku-4-5"; // cheap structured extraction per entry
 const ROUTE_MODEL = "claude-haiku-4-5"; //  entry-vs-question classification
@@ -105,7 +105,7 @@ Rules:
 - entities: the concrete nouns worth correlating later (foods, people, places, activities).
 - mood and energy: integers 1-10, ONLY when the user actually expresses them (explicitly or very clearly implied). Otherwise null. Do not invent scores.
 - notes: anything contextual that doesn't fit the summary, else null.
-- For photos: describe what's clearly depicted; combine with any caption. Read visible labels carefully and only name a specific product or brand when it's actually legible. If an item is ambiguous, describe what you can see ("small yellow tube, product unclear") rather than guessing — and only create food entries for things that are clearly food. Not everything photographed near food is food.
+- For photos: there may be MORE THAN ONE image — they're from the same moment (e.g. a meal from several angles, or a few things logged together). Treat them as one event: describe what's clearly depicted across all of them, combine with any caption, and don't double-count the same item seen in two photos. Read visible labels carefully and only name a specific product or brand when it's actually legible. If an item is ambiguous, describe what you can see ("small yellow tube, product unclear") rather than guessing — and only create food entries for things that are clearly food. Not everything photographed near food is food.
 - If the input contains nothing journal-worthy, return an empty entries array.
 
 Separately, report "delivery" — HOW the message reads, not what it says. This is a subtle signal of internal state worth tracking over time.
@@ -118,21 +118,27 @@ Separately, report "delivery" — HOW the message reads, not what it says. This 
 export async function extractEntries(
   env: Env,
   text: string | null,
-  image?: { base64: string; mediaType: "image/jpeg" | "image/png" },
+  images?: Image[],
 ): Promise<ExtractionResult> {
   const content: Anthropic.ContentBlockParam[] = [];
-  if (image) {
+  for (const img of images ?? []) {
     content.push({
       type: "image",
-      source: { type: "base64", media_type: image.mediaType, data: image.base64 },
+      source: { type: "base64", media_type: img.mediaType, data: img.base64 },
     });
   }
-  content.push({ type: "text", text: text?.trim() ? text : "(no text — see image)" });
+  const hasImages = (images?.length ?? 0) > 0;
+  const promptText = text?.trim()
+    ? text
+    : hasImages
+      ? "(no text — describe what's in the photo(s))"
+      : "(no text)";
+  content.push({ type: "text", text: promptText });
 
   const response = await client(env).messages.create({
     // Image extraction needs the stronger model — reading product labels in
     // photos is where the cheap tier reliably misfires. Photos are low-volume.
-    model: image ? ANALYSIS_MODEL : EXTRACT_MODEL,
+    model: hasImages ? ANALYSIS_MODEL : EXTRACT_MODEL,
     max_tokens: 2048,
     system: EXTRACTION_SYSTEM,
     messages: [{ role: "user", content }],
