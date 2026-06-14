@@ -71,6 +71,7 @@ export function dashboardPage(key: string | null): Response {
   .controls input[type=search] { flex: 1; min-width: 160px; padding: .4rem .7rem; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; font-size: .95rem; }
   .chip { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .2rem .7rem; font-size: .8rem; cursor: pointer; }
   .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .ctl-group { display: inline-flex; gap: .4rem; margin-right: .7rem; }
 
   .w { cursor: pointer; border-radius: 3px; padding: 0 1px; }
   .w:hover { background: #8883; }
@@ -154,7 +155,21 @@ export function dashboardPage(key: string | null): Response {
 </section>
 
 <section id="review" class="view">
-  <div class="box" style="margin:.9rem 0"><canvas id="moodChart"></canvas></div>
+  <div class="controls" style="margin:.9rem 0 .4rem">
+    <span class="ctl-group" id="resCtl">
+      <button class="chip res" data-r="hour">Hour</button>
+      <button class="chip res on" data-r="day">Day</button>
+      <button class="chip res" data-r="week">Week</button>
+    </span>
+    <span class="ctl-group" id="winCtl">
+      <button class="chip win" data-d="7">7d</button>
+      <button class="chip win on" data-d="30">30d</button>
+      <button class="chip win" data-d="90">90d</button>
+      <button class="chip win" data-d="365">All</button>
+    </span>
+    <button class="chip" id="errToggle" title="Show min–max range per bucket">± range</button>
+  </div>
+  <div class="box"><canvas id="moodChart"></canvas></div>
   <h2 style="font-size:1rem">This week by category</h2>
   <div id="categories"></div>
   <h2 style="font-size:1rem">Latest weekly analysis</h2>
@@ -448,18 +463,44 @@ document.getElementById('q').addEventListener('input', e => {
 });
 
 // --- Review ---
-let reviewLoaded = false;
+let reviewLoaded = false, chart = null;
+let resolution = 'day', windowDays = 30, errorBars = false;
+
+// Min–max range rendered as a translucent band behind the mean line: a "hi"
+// dataset filling down to the adjacent "lo" dataset. No plugin needed.
+function band(meanArr, loArr, hiArr, color) {
+  const faint = color + '22';
+  return [
+    { label: '_hi', data: hiArr, borderColor: 'transparent', backgroundColor: faint,
+      pointRadius: 0, fill: '+1', spanGaps: true, tension: .3 },
+    { label: '_lo', data: loArr, borderColor: 'transparent', backgroundColor: faint,
+      pointRadius: 0, fill: false, spanGaps: true, tension: .3 },
+  ];
+}
+
 async function loadReview() {
   reviewLoaded = true;
-  const data = await api('/api/dashboard');
-  new Chart(document.getElementById('moodChart'), {
+  const data = await api('/api/dashboard?res=' + resolution + '&days=' + windowDays);
+  const s = data.series;
+  const datasets = [];
+  if (errorBars) {
+    datasets.push(...band(s.mood, s.moodLo, s.moodHi, CAT.mood));
+    datasets.push(...band(s.energy, s.energyLo, s.energyHi, CAT.sleep));
+  }
+  datasets.push({ label: 'Mood', data: s.mood, borderColor: CAT.mood, backgroundColor: CAT.mood, spanGaps: true, tension: .3 });
+  datasets.push({ label: 'Energy', data: s.energy, borderColor: CAT.sleep, backgroundColor: CAT.sleep, spanGaps: true, tension: .3 });
+
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('moodChart'), {
     type: 'line',
-    data: { labels: data.series.labels, datasets: [
-      { label: 'Mood', data: data.series.mood, borderColor: CAT.mood, spanGaps: true, tension: .3 },
-      { label: 'Energy', data: data.series.energy, borderColor: CAT.sleep, spanGaps: true, tension: .3 },
-    ]},
-    options: { scales: { y: { min: 1, max: 10 } } },
+    data: { labels: s.labels, datasets },
+    options: {
+      animation: false,
+      scales: { y: { min: 1, max: 10 } },
+      plugins: { legend: { labels: { filter: i => !i.text.startsWith('_') } } },
+    },
   });
+
   document.getElementById('categories').innerHTML = Object.entries(data.categoryCounts)
     .sort((a, b) => b[1] - a[1])
     .map(([c, n]) => '<span class="catbadge" style="border-color:' + (CAT[c]||CAT.other) + ';color:' + (CAT[c]||CAT.other) + '">' + icon(CAT_IC[c] || 'tag') + esc(c) + ' × ' + n + '</span>')
@@ -467,6 +508,20 @@ async function loadReview() {
   document.getElementById('report').innerHTML =
     data.latestWeeklyReport ? md(data.latestWeeklyReport.markdown) : '<em>No weekly report yet — it generates Sunday evenings.</em>';
 }
+
+document.querySelectorAll('#resCtl .res').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#resCtl .res').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); resolution = b.dataset.r; loadReview();
+});
+document.querySelectorAll('#winCtl .win').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#winCtl .win').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); windowDays = Number(b.dataset.d); loadReview();
+});
+document.getElementById('errToggle').onclick = () => {
+  errorBars = !errorBars;
+  document.getElementById('errToggle').classList.toggle('on', errorBars);
+  loadReview();
+};
 
 // --- Ask ---
 const chat = document.getElementById('chat');

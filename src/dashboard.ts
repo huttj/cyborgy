@@ -16,7 +16,7 @@ import {
 import { extractEntries } from "./llm";
 import { transcribe, loadImages } from "./pipeline";
 import { answerWithContext } from "./bot";
-import { dailyMoodEnergySeries } from "./scheduled";
+import { moodEnergySeries, type Resolution } from "./scheduled";
 
 const DAY = 86400;
 
@@ -80,19 +80,25 @@ export async function messagesData(env: Env, params: URLSearchParams): Promise<R
 }
 
 /** Charts + categories + latest weekly report, for the Review tab. */
-export async function dashboardData(env: Env): Promise<Response> {
+export async function dashboardData(env: Env, params?: URLSearchParams): Promise<Response> {
+  const resParam = params?.get("res");
+  const res: Resolution = resParam === "hour" || resParam === "week" ? resParam : "day";
+  const days = Math.min(Math.max(Number(params?.get("days")) || 28, 1), 365);
+
   const [entries, weekly] = await Promise.all([
-    entriesSince(env, now() - 28 * DAY),
+    entriesSince(env, now() - days * DAY),
     latestReport(env, "weekly"),
   ]);
 
-  const series = dailyMoodEnergySeries(env, entries);
+  const series = moodEnergySeries(env, entries, res);
   const categoryCounts: Record<string, number> = {};
   const recent = entries.filter((e) => e.ts >= now() - 7 * DAY);
   for (const e of recent) categoryCounts[e.category] = (categoryCounts[e.category] ?? 0) + 1;
 
   return Response.json({
     series,
+    res,
+    days,
     categoryCounts,
     totalEntries: entries.length,
     latestWeeklyReport: weekly

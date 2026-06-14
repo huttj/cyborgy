@@ -149,7 +149,7 @@ export default {
     }
     if (url.pathname === "/api/dashboard" && request.method === "GET") {
       if (!authed) return new Response("unauthorized", { status: 401 });
-      return dashboardData(env);
+      return dashboardData(env, url.searchParams);
     }
     if (url.pathname === "/api/messages" && request.method === "GET") {
       if (!authed) return new Response("unauthorized", { status: 401 });

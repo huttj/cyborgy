@@ -198,40 +198,95 @@ async function lastPingTimeAfter(env: Env, kind: string, since: number): Promise
   return last != null && last >= since;
 }
 
-export interface DailySeries {
+export type Resolution = "hour" | "day" | "week";
+
+export interface MoodEnergySeries {
   labels: string[];
   mood: (number | null)[];
   energy: (number | null)[];
+  moodLo: (number | null)[];
+  moodHi: (number | null)[];
+  energyLo: (number | null)[];
+  energyHi: (number | null)[];
   counts: number[];
 }
 
-export function dailyMoodEnergySeries(env: Env, entries: EntryRow[]): DailySeries {
-  const byDay = new Map<string, { mood: number[]; energy: number[]; count: number }>();
-  for (const e of entries) {
-    const day = new Date(e.ts * 1000).toLocaleDateString("en-US", {
-      timeZone: env.TIMEZONE,
-      weekday: "short",
-      month: "numeric",
-      day: "numeric",
+/** Chronological {sortKey, label} for an entry at the chosen time resolution. */
+function bucketFor(env: Env, ts: number, res: Resolution): { key: string; label: string } {
+  const tz = env.TIMEZONE;
+  const d = new Date(ts * 1000);
+  if (res === "hour") {
+    const key = d.toLocaleString("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hour12: false,
     });
-    const bucket = byDay.get(day) ?? { mood: [], energy: [], count: 0 };
-    bucket.count++;
-    if (e.mood != null) bucket.mood.push(e.mood);
-    if (e.energy != null) bucket.energy.push(e.energy);
-    byDay.set(day, bucket);
+    const label = d.toLocaleString("en-US", { timeZone: tz, weekday: "short", hour: "numeric" });
+    return { key, label };
   }
-  const avg = (xs: number[]) =>
-    xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null;
-  const labels = [...byDay.keys()];
+  const ymd = d.toLocaleDateString("en-CA", { timeZone: tz }); // sortable "2026-06-14"
+  if (res === "week") {
+    const [Y, M, D] = ymd.split("-").map(Number);
+    const dt = new Date(Date.UTC(Y, M - 1, D));
+    dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7)); // snap to Monday
+    const key = dt.toISOString().slice(0, 10);
+    const label =
+      "wk " + dt.toLocaleDateString("en-US", { timeZone: "UTC", month: "numeric", day: "numeric" });
+    return { key, label };
+  }
+  const label = d.toLocaleDateString("en-US", {
+    timeZone: tz,
+    weekday: "short",
+    month: "numeric",
+    day: "numeric",
+  });
+  return { key: ymd, label };
+}
+
+export function moodEnergySeries(
+  env: Env,
+  entries: EntryRow[],
+  res: Resolution = "day",
+): MoodEnergySeries {
+  const buckets = new Map<
+    string,
+    { label: string; mood: number[]; energy: number[]; count: number }
+  >();
+  for (const e of entries) {
+    const { key, label } = bucketFor(env, e.ts, res);
+    const b = buckets.get(key) ?? { label, mood: [], energy: [], count: 0 };
+    b.count++;
+    if (e.mood != null) b.mood.push(e.mood);
+    if (e.energy != null) b.energy.push(e.energy);
+    buckets.set(key, b);
+  }
+  const round = (n: number) => Math.round(n * 10) / 10;
+  const mean = (xs: number[]) => (xs.length ? round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+  const min = (xs: number[]) => (xs.length ? Math.min(...xs) : null);
+  const max = (xs: number[]) => (xs.length ? Math.max(...xs) : null);
+  const keys = [...buckets.keys()].sort(); // sortKeys are chronological strings
+  const g = (k: string) => buckets.get(k)!;
   return {
-    labels,
-    mood: labels.map((d) => avg(byDay.get(d)!.mood)),
-    energy: labels.map((d) => avg(byDay.get(d)!.energy)),
-    counts: labels.map((d) => byDay.get(d)!.count),
+    labels: keys.map((k) => g(k).label),
+    mood: keys.map((k) => mean(g(k).mood)),
+    energy: keys.map((k) => mean(g(k).energy)),
+    moodLo: keys.map((k) => min(g(k).mood)),
+    moodHi: keys.map((k) => max(g(k).mood)),
+    energyLo: keys.map((k) => min(g(k).energy)),
+    energyHi: keys.map((k) => max(g(k).energy)),
+    counts: keys.map((k) => g(k).count),
   };
 }
 
-function quickChartUrl(series: DailySeries): string | null {
+/** Back-compat alias for the weekly-recap chart (day resolution). */
+export function dailyMoodEnergySeries(env: Env, entries: EntryRow[]): MoodEnergySeries {
+  return moodEnergySeries(env, entries, "day");
+}
+
+function quickChartUrl(series: MoodEnergySeries): string | null {
   if (series.labels.length === 0) return null;
   const config = {
     type: "line",
