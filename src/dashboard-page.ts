@@ -497,28 +497,35 @@ function gradientCss(scale) {
   for (let i = 0; i <= 4; i++) stops.push(heightColor(scale, 1 + (i / 4) * 9));
   return 'linear-gradient(90deg,' + stops.join(',') + ')';
 }
+// Shared vertical canvas gradient over the y-axis (value 1 bottom → 10 top).
+// alphaHex (2 hex digits) makes a translucent variant for the range band.
+function vGradient(ctx, scale, alphaHex) {
+  const area = ctx.chart.chartArea;
+  if (!area || !scale) return null;
+  const g = ctx.chart.ctx.createLinearGradient(0, area.bottom, 0, area.top);
+  for (let i = 0; i <= 10; i++) {
+    const col = heightColor(scale, 1 + (i / 10) * 9);
+    if (!col) return null;
+    g.addColorStop(i / 10, col + (alphaHex || ''));
+  }
+  return g;
+}
 function byHeight(scale, fallback) {
   return {
-    borderColor: ctx => {
-      const area = ctx.chart.chartArea;
-      if (!area || !scale) return fallback;
-      const g = ctx.chart.ctx.createLinearGradient(0, area.bottom, 0, area.top);
-      for (let i = 0; i <= 10; i++) g.addColorStop(i / 10, heightColor(scale, 1 + (i / 10) * 9));
-      return g;
-    },
+    borderColor: ctx => vGradient(ctx, scale) || fallback,
     pointBackgroundColor: ctx => heightColor(scale, ctx.parsed.y) || fallback,
     pointBorderColor: ctx => heightColor(scale, ctx.parsed.y) || fallback,
   };
 }
 
-// Min–max range rendered as a translucent band behind the mean line: a "hi"
-// dataset filling down to the adjacent "lo" dataset. No plugin needed.
-function band(meanArr, loArr, hiArr, color) {
-  const faint = color + '22';
+// Min–max range as a translucent height-gradient band behind the mean line:
+// a "hi" dataset filling down to the adjacent "lo" dataset.
+function band(loArr, hiArr, scale) {
   return [
-    { label: '_hi', data: hiArr, borderColor: 'transparent', backgroundColor: faint,
+    { label: '_hi', data: hiArr, borderColor: 'transparent',
+      backgroundColor: ctx => vGradient(ctx, scale, '33') || 'transparent',
       pointRadius: 0, fill: '+1', spanGaps: true, tension: .3 },
-    { label: '_lo', data: loArr, borderColor: 'transparent', backgroundColor: faint,
+    { label: '_lo', data: loArr, borderColor: 'transparent', backgroundColor: 'transparent',
       pointRadius: 0, fill: false, spanGaps: true, tension: .3 },
   ];
 }
@@ -529,8 +536,8 @@ async function loadReview() {
   const s = data.series;
   const datasets = [];
   if (errorBars) {
-    datasets.push(...band(s.mood, s.moodLo, s.moodHi, CAT.mood));
-    datasets.push(...band(s.energy, s.energyLo, s.energyHi, CAT.sleep));
+    datasets.push(...band(s.moodLo, s.moodHi, MOOD_SCALE));
+    datasets.push(...band(s.energyLo, s.energyHi, ENERGY_SCALE));
   }
   datasets.push({ label: 'Mood', data: s.mood, borderColor: CAT.mood, backgroundColor: CAT.mood, spanGaps: true, tension: .3, ...byHeight(MOOD_SCALE, CAT.mood) });
   datasets.push({ label: 'Energy', data: s.energy, borderColor: CAT.sleep, backgroundColor: CAT.sleep, spanGaps: true, tension: .3, ...byHeight(ENERGY_SCALE, CAT.sleep) });
