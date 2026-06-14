@@ -16,6 +16,7 @@ export function dashboardPage(key: string | null): Response {
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/colorjs.io@0.5.2/dist/color.global.js"></script>
 <style>
   :root { color-scheme: light dark; --accent: #e07a5f; --line: #8883; }
   * { box-sizing: border-box; }
@@ -466,6 +467,29 @@ document.getElementById('q').addEventListener('input', e => {
 let reviewLoaded = false, chart = null;
 let resolution = 'day', windowDays = 30, errorBars = false;
 
+// Value→color scales (perceptual Lab interpolation via colorjs.io):
+// mood red(1)→blue(10), energy gray(1)→green(10). Cached per integer value.
+const haveColor = typeof Color !== 'undefined';
+const MOOD_SCALE = haveColor ? Color.range('#ef5350', '#1e88e5', { space: 'lab' }) : null;
+const ENERGY_SCALE = haveColor ? Color.range('#9e9e9e', '#43a047', { space: 'lab' }) : null;
+const colorCache = new Map();
+function heightColor(scale, v) {
+  if (!scale || v == null || !isFinite(v)) return undefined;
+  const t = Math.max(0, Math.min(1, (v - 1) / 9));
+  const key = scale === MOOD_SCALE ? 'm' + t.toFixed(2) : 'e' + t.toFixed(2);
+  let c = colorCache.get(key);
+  if (!c) { c = scale(t).to('srgb').toString({ format: 'hex' }); colorCache.set(key, c); }
+  return c;
+}
+// Scriptable color options: each segment by its midpoint value, each point by its value.
+function byHeight(scale) {
+  return {
+    segment: { borderColor: ctx => heightColor(scale, (ctx.p0.parsed.y + ctx.p1.parsed.y) / 2) },
+    pointBackgroundColor: ctx => heightColor(scale, ctx.parsed.y),
+    pointBorderColor: ctx => heightColor(scale, ctx.parsed.y),
+  };
+}
+
 // Min–max range rendered as a translucent band behind the mean line: a "hi"
 // dataset filling down to the adjacent "lo" dataset. No plugin needed.
 function band(meanArr, loArr, hiArr, color) {
@@ -487,8 +511,8 @@ async function loadReview() {
     datasets.push(...band(s.mood, s.moodLo, s.moodHi, CAT.mood));
     datasets.push(...band(s.energy, s.energyLo, s.energyHi, CAT.sleep));
   }
-  datasets.push({ label: 'Mood', data: s.mood, borderColor: CAT.mood, backgroundColor: CAT.mood, spanGaps: true, tension: .3 });
-  datasets.push({ label: 'Energy', data: s.energy, borderColor: CAT.sleep, backgroundColor: CAT.sleep, spanGaps: true, tension: .3 });
+  datasets.push({ label: 'Mood', data: s.mood, borderColor: CAT.mood, backgroundColor: CAT.mood, spanGaps: true, tension: .3, ...byHeight(MOOD_SCALE) });
+  datasets.push({ label: 'Energy', data: s.energy, borderColor: CAT.sleep, backgroundColor: CAT.sleep, spanGaps: true, tension: .3, ...byHeight(ENERGY_SCALE) });
 
   if (chart) chart.destroy();
   chart = new Chart(document.getElementById('moodChart'), {
