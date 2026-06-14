@@ -90,7 +90,7 @@ export function dashboardPage(key: string | null): Response {
   img.ph { max-width: 280px; border-radius: 4px; }
   .gallery { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
   .gallery img.ph { max-width: 180px; max-height: 180px; object-fit: cover; }
-  .thumbwrap { position: relative; display: inline-block; margin-top: .35rem; }
+  .thumbwrap { position: relative; display: block; width: fit-content; margin-top: .35rem; }
   img.thumb { display: block; max-height: 64px; border-radius: 3px; }
   .thumbn { position: absolute; right: 3px; bottom: 3px; background: #000a; color: #fff; font-size: .65rem; padding: 0 .3rem; border-radius: 3px; }
   .entry .delE { float: none; flex: none; align-self: center; }
