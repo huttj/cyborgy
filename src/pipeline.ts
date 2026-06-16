@@ -12,6 +12,9 @@ import {
 } from "./db";
 import { arrayBufferToBase64 } from "./telegram-api";
 
+// Share-sheet photos arrive ungrouped; treat photos within this window as one moment.
+const PHOTO_GROUP_WINDOW = 30; // seconds
+
 /** Load image keys from R2 as base64 blocks for extraction. */
 export async function loadImages(env: Env, r2Keys: string[]): Promise<Image[]> {
   const out: Image[] = [];
@@ -120,27 +123,32 @@ export async function ingestPhoto(
     mediaGroupId: string | null;
   },
 ): Promise<PhotoResult> {
-  let messageId: number;
-  let created: boolean;
-  if (input.mediaGroupId) {
-    const res = await createOrGetAlbumMessage(env, {
-      telegramMessageId: input.telegramMessageId,
-      rawText: input.caption,
-      r2Key: input.r2Key,
-      mediaGroupId: input.mediaGroupId,
-    });
-    messageId = res.id;
-    created = res.created;
-  } else {
-    messageId = await insertMessage(env, {
-      telegramMessageId: input.telegramMessageId,
-      source: "telegram_photo",
-      role: "entry",
-      rawText: input.caption,
-      r2Key: input.r2Key,
-    });
-    created = true;
+  // Telegram only tags true albums (tiled grid) with a media_group_id. Photos
+  // multi-sent as separate bubbles arrive ungrouped, so fall back to grouping
+  // with any photo from the last PHOTO_GROUP_WINDOW seconds — i.e. shots of the
+  // same moment. Reusing a prior photo's group id keeps the atomic-merge path.
+  let groupId = input.mediaGroupId;
+  if (!groupId) {
+    // Only merge with other recent *ungrouped* photos (auto- groups), so a
+    // stray share-sheet photo never gets absorbed into a real Telegram album.
+    const recent = await env.DB.prepare(
+      `SELECT media_group_id FROM messages
+       WHERE source = 'telegram_photo' AND media_group_id LIKE 'auto-%' AND created_at >= ?
+       ORDER BY id DESC LIMIT 1`,
+    )
+      .bind(now() - PHOTO_GROUP_WINDOW)
+      .first<{ media_group_id: string }>();
+    groupId = recent?.media_group_id ?? `auto-${input.telegramMessageId}`;
   }
+
+  const res = await createOrGetAlbumMessage(env, {
+    telegramMessageId: input.telegramMessageId,
+    rawText: input.caption,
+    r2Key: input.r2Key,
+    mediaGroupId: groupId,
+  });
+  const messageId = res.id;
+  const created = res.created;
 
   await addMedia(env, messageId, input.telegramMessageId, input.r2Key);
 

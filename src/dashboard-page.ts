@@ -108,6 +108,7 @@ export function dashboardPage(key: string | null): Response {
   .msg.a { align-self: flex-start; border: 1px solid var(--line); }
   #askForm { display: flex; gap: .5rem; }
   #askInput { flex: 1; padding: .55rem .8rem; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; font-size: 1rem; }
+  #memText { width: 100%; min-height: 60vh; padding: .7rem .85rem; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; font: inherit; line-height: 1.5; resize: vertical; }
 
   .del { float: right; border: none; background: none; color: inherit; opacity: .4; cursor: pointer; padding: .1rem .2rem; }
   .del:hover { opacity: 1; color: #ef5350; }
@@ -143,6 +144,7 @@ export function dashboardPage(key: string | null): Response {
     <button data-v="stream">Stream</button>
     <button data-v="review">Review</button>
     <button data-v="ask">Ask</button>
+    <button data-v="memory">Memory</button>
   </nav>
 </header>
 
@@ -179,6 +181,15 @@ export function dashboardPage(key: string | null): Response {
   <div id="categories"></div>
   <h2 style="font-size:1rem">Latest weekly analysis</h2>
   <div class="box md" id="report">Loading…</div>
+</section>
+
+<section id="memory" class="view">
+  <p class="meta" style="margin:.6rem 0">Notes and context for the AI — kept short, injected into every prompt. The Ask assistant can also add to this as it learns.</p>
+  <textarea id="memText" placeholder="e.g. I'm vegetarian. 'The gym' means the climbing gym. I track mood mainly to understand work stress."></textarea>
+  <div style="display:flex;align-items:center;gap:.8rem;margin-top:.5rem">
+    <button class="std" id="memSave">Save</button>
+    <span class="meta" id="memStatus"></span>
+  </div>
 </section>
 
 <section id="ask" class="view">
@@ -244,6 +255,7 @@ function show(v) {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
   location.hash = v;
   if (v === 'review' && !reviewLoaded) loadReview();
+  if (v === 'memory') loadMemory();
 }
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.dataset.v));
 
@@ -579,6 +591,23 @@ document.getElementById('errToggle').onclick = () => {
   loadReview();
 };
 
+// --- Memory ---
+const memText = document.getElementById('memText');
+const memStatus = document.getElementById('memStatus');
+let memDirty = false;
+memText.addEventListener('input', () => { memDirty = true; memStatus.textContent = 'unsaved changes'; });
+async function loadMemory() {
+  if (memDirty) return; // don't clobber edits in progress
+  const d = await api('/api/memory');
+  memText.value = d.memory || '';
+  memStatus.textContent = '';
+}
+document.getElementById('memSave').onclick = async () => {
+  memStatus.textContent = 'saving…';
+  await api('/api/memory', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ memory: memText.value }) });
+  memDirty = false; memStatus.textContent = 'saved';
+};
+
 // --- Ask ---
 const chat = document.getElementById('chat');
 document.getElementById('askForm').addEventListener('submit', async e => {
@@ -593,7 +622,7 @@ document.getElementById('askForm').addEventListener('submit', async e => {
   chat.appendChild(pending); pending.scrollIntoView({behavior:'smooth'});
   try {
     const res = await api('/api/ask', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ question }) });
-    if (res.ok) pending.innerHTML = md(res.answer);
+    if (res.ok) { pending.innerHTML = md(res.answer); loadMemory(); } // assistant may have saved a memory
     else pending.textContent = 'Error: ' + (res.error || 'something went wrong');
   } catch { pending.textContent = 'Error: request failed'; }
   pending.scrollIntoView({behavior:'smooth'});

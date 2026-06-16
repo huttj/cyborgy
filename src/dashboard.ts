@@ -11,6 +11,8 @@ import {
   insertEntries,
   insertMessage,
   setMessageDelivery,
+  getMemory,
+  setMemory,
   now,
 } from "./db";
 import { extractEntries } from "./llm";
@@ -105,6 +107,17 @@ export async function dashboardData(env: Env, params?: URLSearchParams): Promise
       ? { markdown: weekly.content_md, createdAt: weekly.created_at }
       : null,
   });
+}
+
+/** Long-term memory document (Memory tab). */
+export async function memoryData(env: Env): Promise<Response> {
+  return Response.json({ memory: await getMemory(env) });
+}
+
+export async function saveMemory(env: Env, request: Request): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { memory?: string } | null;
+  await setMemory(env, String(body?.memory ?? ""));
+  return Response.json({ ok: true });
 }
 
 /** Browser Q&A — same brain as asking the bot in Telegram. */

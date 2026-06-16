@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Env, ExtractedEntry, ExtractionResult, Image, Intent, EntryRow, MessageRow } from "./types";
+import { getMemory, appendMemory } from "./db";
 
 const EXTRACT_MODEL = "claude-haiku-4-5"; // cheap structured extraction per entry
 const ROUTE_MODEL = "claude-haiku-4-5"; //  entry-vs-question classification
@@ -8,6 +9,13 @@ const ANALYSIS_MODEL = "claude-opus-4-8"; // weekly correlation report
 
 function client(env: Env): Anthropic {
   return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+}
+
+/** A concise memory block to prepend to a system prompt, or "" if empty. */
+function memoryBlock(memory: string): string {
+  return memory.trim()
+    ? `\n\nWhat you know about the user (their notes + things you've learned — treat as background context):\n${memory.trim()}`
+    : "";
 }
 
 function firstText(response: Anthropic.Message): string {
@@ -120,6 +128,7 @@ export async function extractEntries(
   text: string | null,
   images?: Image[],
 ): Promise<ExtractionResult> {
+  const memory = await getMemory(env);
   const content: Anthropic.ContentBlockParam[] = [];
   for (const img of images ?? []) {
     content.push({
@@ -140,7 +149,7 @@ export async function extractEntries(
     // photos is where the cheap tier reliably misfires. Photos are low-volume.
     model: hasImages ? ANALYSIS_MODEL : EXTRACT_MODEL,
     max_tokens: 2048,
-    system: EXTRACTION_SYSTEM,
+    system: EXTRACTION_SYSTEM + memoryBlock(memory),
     messages: [{ role: "user", content }],
     output_config: {
       format: {
@@ -174,31 +183,79 @@ export function formatEntryLine(e: EntryRow, timeZone: string): string {
   return `[${when}] ${e.category}: ${e.summary}${scores ? ` (${scores})` : ""}`;
 }
 
+const REMEMBER_TOOL: Anthropic.Tool = {
+  name: "remember",
+  description:
+    "Save a concise, durable fact about the user to long-term memory: stable preferences, " +
+    "recurring context, clarifications about their words/habits, or a confirmed insight. " +
+    "Use sparingly — only for things worth recalling in future conversations, not ephemeral " +
+    "details from today. One short sentence per call.",
+  input_schema: {
+    type: "object",
+    properties: { note: { type: "string", description: "The fact to remember, one concise sentence." } },
+    required: ["note"],
+  },
+};
+
 export async function answerQuestion(
   env: Env,
   question: string,
   context: { entries: EntryRow[]; conversation: MessageRow[] },
 ): Promise<string> {
   const journal = context.entries.map((e) => formatEntryLine(e, env.TIMEZONE)).join("\n");
+  const memory = await getMemory(env);
 
-  const history: Anthropic.MessageParam[] = context.conversation.map((m) => ({
-    role: m.role === "assistant" ? "assistant" : "user",
-    content: m.raw_text ?? "",
-  }));
+  const system =
+    "You are the user's personal journal assistant on Telegram. Answer questions about " +
+    "their life using the journal entries below. Be specific, cite days/times naturally, " +
+    "and keep answers conversational and reasonably short — this is a chat, not a report. " +
+    "If the journal doesn't contain the answer, say so plainly. You may use the `remember` " +
+    "tool to save durable facts about the user as you learn them.\n\n" +
+    `Recent journal entries (timezone ${env.TIMEZONE}):\n${journal || "(no entries yet)"}` +
+    memoryBlock(memory);
 
-  const response = await client(env).messages.create({
-    model: CHAT_MODEL,
-    max_tokens: 4096,
-    thinking: { type: "adaptive" },
-    system:
-      "You are the user's personal journal assistant on Telegram. Answer questions about " +
-      "their life using the journal entries below. Be specific, cite days/times naturally, " +
-      "and keep answers conversational and reasonably short — this is a chat, not a report. " +
-      "If the journal doesn't contain the answer, say so plainly.\n\n" +
-      `Recent journal entries (timezone ${env.TIMEZONE}):\n${journal || "(no entries yet)"}`,
-    messages: [...history, { role: "user", content: question }],
-  });
-  return firstText(response);
+  const messages: Anthropic.MessageParam[] = [
+    ...context.conversation.map((m) => ({
+      role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+      content: m.raw_text ?? "",
+    })),
+    { role: "user", content: question },
+  ];
+
+  const cli = client(env);
+  // Short tool loop so the model can call `remember` then finish its answer.
+  for (let i = 0; i < 3; i++) {
+    const response = await cli.messages.create({
+      model: CHAT_MODEL,
+      max_tokens: 4096,
+      thinking: { type: "adaptive" },
+      system,
+      tools: [REMEMBER_TOOL],
+      messages,
+    });
+    if (response.stop_reason !== "tool_use") return firstText(response);
+
+    messages.push({ role: "assistant", content: response.content });
+    const results: Anthropic.ToolResultBlockParam[] = [];
+    for (const block of response.content) {
+      if (block.type === "tool_use" && block.name === "remember") {
+        const note = (block.input as { note?: string }).note ?? "";
+        if (note.trim()) await appendMemory(env, note);
+        results.push({ type: "tool_result", tool_use_id: block.id, content: "saved" });
+      }
+    }
+    messages.push({ role: "user", content: results });
+  }
+  // Fallback: one more call without tools to force a text answer.
+  return firstText(
+    await cli.messages.create({
+      model: CHAT_MODEL,
+      max_tokens: 4096,
+      thinking: { type: "adaptive" },
+      system,
+      messages,
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +264,7 @@ export async function answerQuestion(
 
 export async function writeDailyRecap(env: Env, todayEntries: EntryRow[]): Promise<string> {
   const journal = todayEntries.map((e) => formatEntryLine(e, env.TIMEZONE)).join("\n");
+  const memory = await getMemory(env);
   const response = await client(env).messages.create({
     model: CHAT_MODEL,
     max_tokens: 2048,
@@ -215,7 +273,8 @@ export async function writeDailyRecap(env: Env, todayEntries: EntryRow[]): Promi
       "Write the user's end-of-day recap as a short, warm Telegram message (under 150 words). " +
       "Summarize the day from their journal entries, note mood/energy if recorded, and end with " +
       "ONE brief reflective question about anything notable that went unrecorded (e.g. dinner, " +
-      "exercise, mood). Plain text, light emoji ok, no markdown headers.",
+      "exercise, mood). Plain text, light emoji ok, no markdown headers." +
+      memoryBlock(memory),
     messages: [{ role: "user", content: `Today's entries:\n${journal}` }],
   });
   return firstText(response);
@@ -232,6 +291,7 @@ export async function writeWeeklyAnalysis(
   const deliverySection = deliverySummary
     ? `\n\nDELIVERY PATTERNS (how the user spoke, from voice-note analysis — speech rate in words/sec and observed speech features):\n${deliverySummary}`
     : "";
+  const memory = await getMemory(env);
   const response = await client(env).messages.create({
     model: ANALYSIS_MODEL,
     max_tokens: 8192,
@@ -249,7 +309,8 @@ export async function writeWeeklyAnalysis(
       "4. One or two suggested mini-experiments for next week to test the strongest hypothesis.\n" +
       "5. Gaps: what's under-logged that limits the analysis.\n" +
       "Format as a Telegram-friendly message: short sections with bold-style *headers*, " +
-      "bullet lists, under 400 words. No tables.",
+      "bullet lists, under 400 words. No tables." +
+      memoryBlock(memory),
     messages: [
       {
         role: "user",

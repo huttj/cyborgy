@@ -8,6 +8,8 @@ import {
   dashboardPage,
   messagesData,
   askHandler,
+  memoryData,
+  saveMemory,
   reprocessMessage,
   deleteMessage,
   deleteEntryHandler,
@@ -158,6 +160,14 @@ export default {
     if (url.pathname === "/api/ask" && request.method === "POST") {
       if (!authed) return new Response("unauthorized", { status: 401 });
       return askHandler(env, request);
+    }
+    if (url.pathname === "/api/memory" && request.method === "GET") {
+      if (!authed) return new Response("unauthorized", { status: 401 });
+      return memoryData(env);
+    }
+    if (url.pathname === "/api/memory" && request.method === "PUT") {
+      if (!authed) return new Response("unauthorized", { status: 401 });
+      return saveMemory(env, request);
     }
     // Admin: POST /api/admin/reprocess?id=N | DELETE /api/admin/messages?id=N
     if (url.pathname === "/api/admin/reprocess" && request.method === "POST") {

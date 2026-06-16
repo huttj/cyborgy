@@ -133,6 +133,32 @@ export async function mediaByMessageIds(
   return map;
 }
 
+// --- long-term memory (single editable document) ---
+
+export async function getMemory(env: Env): Promise<string> {
+  const row = await env.DB.prepare(`SELECT value FROM app_state WHERE key = 'memory'`).first<{
+    value: string;
+  }>();
+  return row?.value ?? "";
+}
+
+export async function setMemory(env: Env, value: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO app_state (key, value, updated_at) VALUES ('memory', ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  )
+    .bind(value, now())
+    .run();
+}
+
+/** Append one bullet to memory; returns the updated document. */
+export async function appendMemory(env: Env, note: string): Promise<string> {
+  const cur = await getMemory(env);
+  const next = (cur.trim() ? cur.trimEnd() + "\n" : "") + "- " + note.trim();
+  await setMemory(env, next);
+  return next;
+}
+
 export async function setReplyMessageId(env: Env, id: number, replyId: number): Promise<void> {
   await env.DB.prepare(`UPDATE messages SET reply_message_id = ? WHERE id = ?`)
     .bind(replyId, id)

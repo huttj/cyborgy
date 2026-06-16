@@ -134,9 +134,10 @@ export function createBot(env: Env): Bot {
             .catch(() => {}); // "message is not modified" etc. — harmless
         }
       }
+      console.log(`photo ok: msg=${messageId} created=${created} entries=${entries.length}`);
       await ctx.react("👍").catch(() => {});
     } catch (err) {
-      console.error("photo handler failed", err);
+      console.error("photo handler failed:", err instanceof Error ? err.stack || err.message : err);
       await ctx.react("👎").catch(() => {});
       await ctx.reply("Something went wrong processing that photo — try again?");
     }
