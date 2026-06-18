@@ -69,6 +69,7 @@ export async function messagesData(env: Env, params: URLSearchParams): Promise<R
       delivery: m.delivery_json ? (JSON.parse(m.delivery_json) as Delivery) : null,
       entries: m.entries.map((e) => ({
         id: e.id,
+        ts: e.ts,
         category: e.category,
         summary: e.summary,
         entities: JSON.parse(e.entities) as string[],
@@ -169,14 +170,16 @@ export async function reprocessMessage(
   }
 
   await deleteEntriesForMessage(env, id);
-  const { entries, delivery } = await extractEntries(env, text, images);
+  // Anchor "yesterday"/"last night" to when the message was captured, not now —
+  // otherwise re-extracting a historical message resolves cues against today.
+  const { entries, delivery } = await extractEntries(env, text, images, msg.created_at);
   await insertEntries(env, id, msg.created_at, entries);
   await setMessageDelivery(env, id, delivery, msg.wps);
 
   // Return the stored rows (with ids) so the UI can keep per-entry controls live.
   const rows = await env.DB.prepare(`SELECT * FROM entries WHERE message_id = ? ORDER BY id`)
     .bind(id)
-    .all<{ id: number; category: string; summary: string; entities: string; mood: number | null; energy: number | null; notes: string | null }>();
+    .all<{ id: number; ts: number; category: string; summary: string; entities: string; mood: number | null; energy: number | null; notes: string | null }>();
   return Response.json({
     ok: true,
     retranscribed: retranscribe,
@@ -184,6 +187,7 @@ export async function reprocessMessage(
     delivery,
     entries: rows.results.map((e) => ({
       id: e.id,
+      ts: e.ts,
       category: e.category,
       summary: e.summary,
       entities: JSON.parse(e.entities) as string[],

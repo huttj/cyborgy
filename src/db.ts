@@ -23,6 +23,23 @@ export async function insertMessage(
   return res!.id;
 }
 
+/**
+ * Resolve an entry's effective timestamp: the extractor's occurred_at when it
+ * supplied a valid, sane one, else the capture time. Guards against model-
+ * hallucinated dates by rejecting anything outside roughly [a year ago, a day
+ * ahead] of capture.
+ */
+export function resolveEntryTs(occurredAt: string | null | undefined, fallback: number): number {
+  if (!occurredAt) return fallback;
+  const ms = Date.parse(occurredAt);
+  if (Number.isNaN(ms)) return fallback;
+  const ts = Math.floor(ms / 1000);
+  const YEAR = 366 * 24 * 60 * 60;
+  const DAY = 24 * 60 * 60;
+  if (ts < fallback - YEAR || ts > fallback + DAY) return fallback;
+  return ts;
+}
+
 export async function insertEntries(
   env: Env,
   messageId: number,
@@ -38,7 +55,7 @@ export async function insertEntries(
     entries.map((e) =>
       stmt.bind(
         messageId,
-        ts,
+        resolveEntryTs(e.occurred_at, ts),
         e.category,
         e.summary,
         JSON.stringify(e.entities ?? []),

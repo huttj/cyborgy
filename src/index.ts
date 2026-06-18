@@ -89,7 +89,7 @@ export default {
 
       const { entries } = await ingestEntry(env, { text, source: "shortcut" });
       // Echo into the Telegram chat so the journal feed stays complete.
-      ctx.waitUntil(sendToUser(env, `⌚ ${text}\n\n${confirmationText(entries)}`));
+      ctx.waitUntil(sendToUser(env, `⌚ ${text}\n\n${confirmationText(entries, env.TIMEZONE)}`));
       return Response.json({ ok: true, entries: entries.length });
     }
 

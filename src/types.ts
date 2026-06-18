@@ -30,6 +30,12 @@ export interface ExtractedEntry {
   mood: number | null;
   energy: number | null;
   notes: string | null;
+  /**
+   * When the event actually happened, as an ISO 8601 string with offset, or
+   * null meaning "use the capture time". Set by the extractor only when the
+   * message carries an explicit time cue ("yesterday", "last night").
+   */
+  occurred_at: string | null;
 }
 
 export interface TranscriptWord {
