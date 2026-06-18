@@ -142,6 +142,7 @@ export async function reprocessMessage(
   env: Env,
   id: number,
   retranscribe = false,
+  guidance?: string,
 ): Promise<Response> {
   const msg = await getMessage(env, id);
   if (!msg) return Response.json({ ok: false, error: "message not found" }, { status: 404 });
@@ -172,7 +173,7 @@ export async function reprocessMessage(
   await deleteEntriesForMessage(env, id);
   // Anchor "yesterday"/"last night" to when the message was captured, not now —
   // otherwise re-extracting a historical message resolves cues against today.
-  const { entries, delivery } = await extractEntries(env, text, images, msg.created_at);
+  const { entries, delivery } = await extractEntries(env, text, images, msg.created_at, guidance);
   await insertEntries(env, id, msg.created_at, entries);
   await setMessageDelivery(env, id, delivery, msg.wps);
 

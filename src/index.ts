@@ -172,10 +172,13 @@ export default {
     // Admin: POST /api/admin/reprocess?id=N | DELETE /api/admin/messages?id=N
     if (url.pathname === "/api/admin/reprocess" && request.method === "POST") {
       if (!authed) return new Response("unauthorized", { status: 401 });
+      // Optional steering note for a manual re-extract (body may be empty).
+      const body = (await request.json().catch(() => null)) as { note?: string } | null;
       return reprocessMessage(
         env,
         Number(url.searchParams.get("id")),
         url.searchParams.get("retranscribe") === "1",
+        body?.note?.trim() || undefined,
       );
     }
     if (url.pathname === "/api/admin/messages" && request.method === "DELETE") {

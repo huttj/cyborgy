@@ -162,6 +162,9 @@ export async function extractEntries(
   /** Reference "now" for resolving time cues — pass the message's capture time
    * when re-extracting a historical message so "yesterday" anchors correctly. */
   at?: number,
+  /** A correction/steer from the user for a manual re-extraction, e.g.
+   * "all of this was yesterday" or "split the poke bowl into its own entry". */
+  guidance?: string,
 ): Promise<ExtractionResult> {
   const memory = await getMemory(env);
   const clock = nowInZone(env.TIMEZONE, at);
@@ -179,6 +182,16 @@ export async function extractEntries(
       ? "(no text — describe what's in the photo(s))"
       : "(no text)";
   content.push({ type: "text", text: promptText });
+  if (guidance?.trim()) {
+    content.push({
+      type: "text",
+      text:
+        "The user is manually re-extracting this message and gave a correction/steer below. " +
+        "Treat it as authoritative — apply it even where it overrides your usual defaults " +
+        "(e.g. it may reassign dates, split or merge entries, drop or add something):\n" +
+        guidance.trim(),
+    });
+  }
 
   const response = await client(env).messages.create({
     // Image extraction needs the stronger model — reading product labels in

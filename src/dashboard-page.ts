@@ -117,6 +117,13 @@ export function dashboardPage(key: string | null): Response {
   .del.rex { margin-right: .45rem; }
   @keyframes rot { to { transform: rotate(360deg); } }
   .rex.busy .icon { animation: rot 1s linear infinite; }
+  .rexpop { margin: .5rem 0 .2rem; }
+  .rexpop textarea { width: 100%; box-sizing: border-box; padding: .45rem .6rem; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; font: inherit; font-size: .9rem; line-height: 1.4; resize: vertical; }
+  .rexrow { display: flex; align-items: center; gap: .5rem; margin-top: .4rem; }
+  .rexrow .grow { flex: 1; }
+  .rexmic { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .2rem .5rem; cursor: pointer; display: inline-flex; align-items: center; }
+  .rexmic.on { border-color: var(--accent); color: var(--accent); }
+  .rexgo { border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 4px; padding: .25rem .85rem; font-size: .85rem; cursor: pointer; }
   .tog { border: none; background: none; color: inherit; opacity: .65; cursor: pointer; padding: .15rem .5rem .15rem 0; margin-left: -4px; }
   .tog .icon { transition: transform .15s; width: 13px; height: 13px; vertical-align: -2px; }
   .card.open .tog .icon { transform: rotate(90deg); }
@@ -249,6 +256,30 @@ const stripMd = s => (s || '').replace(/\\[(.*?)\\]\\(.*?\\)/g, '$1').replace(/[
 const md = s => DOMPurify.sanitize(marked.parse(s || ''));
 const withKey = p => KEY ? p + (p.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY) : p;
 const api = (path, opts) => fetch(withKey(path), opts).then(r => r.json());
+
+// Browser dictation for steer notes (voice-first, matching how entries are logged).
+const SPEECH = window.SpeechRecognition || window.webkitSpeechRecognition;
+function wireDictation(btn, ta) {
+  let rec = null;
+  btn.addEventListener('click', e => {
+    e.preventDefault();
+    if (rec) { rec.stop(); return; }
+    rec = new SPEECH();
+    rec.lang = navigator.language || 'en-US';
+    rec.interimResults = true;
+    rec.continuous = true;
+    const base = ta.value ? ta.value.trim() + ' ' : '';
+    btn.classList.add('on');
+    rec.onresult = ev => {
+      let s = '';
+      for (let i = 0; i < ev.results.length; i++) s += ev.results[i][0].transcript;
+      ta.value = base + s;
+    };
+    rec.onend = () => { btn.classList.remove('on'); rec = null; ta.focus(); };
+    rec.onerror = () => { btn.classList.remove('on'); rec = null; };
+    rec.start();
+  });
+}
 
 // --- tabs (hash-routed) ---
 function show(v) {
@@ -392,23 +423,70 @@ function renderMessage(m) {
   });
   card.querySelector('.preview').addEventListener('click', () => card.classList.add('open'));
 
-  // Re-extract: re-run the LLM over this message, redraw the card in place.
+  // Re-extract: single click opens a steer popover (type or dictate an
+  // instruction, then submit); double click re-runs plainly with no note.
   const rex = card.querySelector('.rex');
-  if (rex) rex.addEventListener('click', async () => {
-    if (rex.classList.contains('busy')) return;
-    rex.classList.add('busy');
-    try {
-      const res = await api('/api/admin/reprocess?id=' + m.id, { method: 'POST' });
-      if (res.ok) {
-        m.entries = res.entries || [];
-        m.delivery = res.delivery || null;
-        const fresh = renderMessage(m);
-        if (card.classList.contains('open')) fresh.classList.add('open');
-        card.replaceWith(fresh);
-      } else alert('Re-extract failed: ' + (res.error || 'unknown error'));
-    } catch { alert('Re-extract failed: request error'); }
-    rex.classList.remove('busy');
-  });
+  if (rex) {
+    let pop = null;
+    const closeRexPop = () => { if (pop) { pop.remove(); pop = null; } };
+
+    const runReprocess = async (note) => {
+      if (rex.classList.contains('busy')) return;
+      closeRexPop();
+      rex.classList.add('busy');
+      try {
+        const res = await api('/api/admin/reprocess?id=' + m.id, {
+          method: 'POST',
+          headers: note ? { 'content-type': 'application/json' } : undefined,
+          body: note ? JSON.stringify({ note }) : undefined,
+        });
+        if (res.ok) {
+          m.entries = res.entries || [];
+          m.delivery = res.delivery || null;
+          const fresh = renderMessage(m);
+          if (card.classList.contains('open')) fresh.classList.add('open');
+          card.replaceWith(fresh);
+          return;
+        }
+        alert('Re-extract failed: ' + (res.error || 'unknown error'));
+      } catch { alert('Re-extract failed: request error'); }
+      rex.classList.remove('busy');
+    };
+
+    const openRexPop = () => {
+      if (pop) { closeRexPop(); return; }
+      pop = document.createElement('div');
+      pop.className = 'rexpop';
+      pop.innerHTML =
+        '<textarea rows="2" placeholder="Steer the re-extract — e.g. &quot;all of this was yesterday&quot;, &quot;split the poke bowl out&quot;, &quot;drop the Cadence part&quot;. ⌘/Ctrl+Enter to run."></textarea>' +
+        '<div class="rexrow">' +
+          (SPEECH ? '<button class="rexmic" title="Dictate">' + icon('mic') + '</button>' : '') +
+          '<span class="grow"></span>' +
+          '<button class="rexgo">Re-extract</button>' +
+        '</div>';
+      card.querySelector('.box').insertBefore(pop, card.querySelector('.preview'));
+      const ta = pop.querySelector('textarea');
+      ta.focus();
+      pop.querySelector('.rexgo').addEventListener('click', () => runReprocess(ta.value.trim() || null));
+      ta.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); runReprocess(ta.value.trim() || null); }
+        else if (e.key === 'Escape') closeRexPop();
+      });
+      const mic = pop.querySelector('.rexmic');
+      if (mic) wireDictation(mic, ta);
+    };
+
+    // Distinguish single (popover) from double (plain re-run) click.
+    let clickT = null;
+    rex.addEventListener('click', () => {
+      if (clickT) return;
+      clickT = setTimeout(() => { clickT = null; openRexPop(); }, 230);
+    });
+    rex.addEventListener('dblclick', () => {
+      clearTimeout(clickT); clickT = null;
+      runReprocess(null);
+    });
+  }
 
   // custom player + karaoke wiring
   const audio = card.querySelector('audio');
