@@ -18,6 +18,36 @@ function memoryBlock(memory: string): string {
     : "";
 }
 
+/**
+ * Current wall-clock time in the user's timezone, both as an offset-aware ISO
+ * string (so the model can do date math) and a human-readable line. The
+ * extractor needs this anchor to resolve "yesterday" / "last night" into a
+ * concrete occurred_at.
+ */
+function nowInZone(tz: string, at?: number): { iso: string; pretty: string } {
+  const ref = at != null ? new Date(at * 1000) : new Date();
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+      weekday: "long",
+      timeZoneName: "longOffset",
+    })
+      .formatToParts(ref)
+      .map((p) => [p.type, p.value]),
+  );
+  const offset = (parts.timeZoneName ?? "GMT+00:00").replace("GMT", "") || "+00:00";
+  const iso = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset}`;
+  const pretty = `${parts.weekday} ${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} (${tz})`;
+  return { iso, pretty };
+}
+
 function firstText(response: Anthropic.Message): string {
   const block = response.content.find((b) => b.type === "text");
   if (!block || block.type !== "text") throw new Error("no text block in response");
@@ -85,8 +115,9 @@ const EXTRACTION_SCHEMA = {
           mood: { type: ["integer", "null"] },
           energy: { type: ["integer", "null"] },
           notes: { type: ["string", "null"] },
+          occurred_at: { type: ["string", "null"] },
         },
-        required: ["category", "summary", "entities", "mood", "energy", "notes"],
+        required: ["category", "summary", "entities", "mood", "energy", "notes", "occurred_at"],
         additionalProperties: false,
       },
     },
@@ -113,6 +144,7 @@ Rules:
 - entities: the concrete nouns worth correlating later (foods, people, places, activities).
 - mood and energy: integers 1-10, ONLY when the user actually expresses them (explicitly or very clearly implied). Otherwise null. Do not invent scores.
 - notes: anything contextual that doesn't fit the summary, else null.
+- occurred_at: when the event actually happened, as a full ISO 8601 timestamp WITH timezone offset (e.g. "2026-06-17T09:00:00-07:00"). Default to null, which means "now" — the current date/time given below. ONLY set a value when the user gives an explicit time cue that the event happened at a DIFFERENT time than now: "yesterday", "last night", "this morning" (when it's already afternoon/evening), "on Tuesday", "a couple hours ago". Resolve the cue against the current date/time below in the user's timezone. Rough time-of-day is fine: "last night" ~21:00, "yesterday morning" ~09:00, "this afternoon" ~15:00, a bare past date ~12:00. Each entry has its OWN occurred_at, so a single message can mix present-moment entries (null) with backdated ones. With no explicit cue, use null — never guess a past date.
 - For photos: there may be MORE THAN ONE image — they're from the same moment (e.g. a meal from several angles, or a few things logged together). Treat them as one event: describe what's clearly depicted across all of them, combine with any caption, and don't double-count the same item seen in two photos. Read visible labels carefully and only name a specific product or brand when it's actually legible. If an item is ambiguous, describe what you can see ("small yellow tube, product unclear") rather than guessing — and only create food entries for things that are clearly food. Not everything photographed near food is food.
 - If the input contains nothing journal-worthy, return an empty entries array.
 
@@ -127,8 +159,12 @@ export async function extractEntries(
   env: Env,
   text: string | null,
   images?: Image[],
+  /** Reference "now" for resolving time cues — pass the message's capture time
+   * when re-extracting a historical message so "yesterday" anchors correctly. */
+  at?: number,
 ): Promise<ExtractionResult> {
   const memory = await getMemory(env);
+  const clock = nowInZone(env.TIMEZONE, at);
   const content: Anthropic.ContentBlockParam[] = [];
   for (const img of images ?? []) {
     content.push({
@@ -149,7 +185,10 @@ export async function extractEntries(
     // photos is where the cheap tier reliably misfires. Photos are low-volume.
     model: hasImages ? ANALYSIS_MODEL : EXTRACT_MODEL,
     max_tokens: 2048,
-    system: EXTRACTION_SYSTEM + memoryBlock(memory),
+    system:
+      EXTRACTION_SYSTEM +
+      `\n\nCurrent date/time: ${clock.pretty}. ISO: ${clock.iso}. Resolve any time cues against this.` +
+      memoryBlock(memory),
     messages: [{ role: "user", content }],
     output_config: {
       format: {

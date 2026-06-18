@@ -172,8 +172,29 @@ function wordsPerSecond(text: string | null, durationSec?: number): number | nul
   return Math.round((words / durationSec) * 100) / 100;
 }
 
+/**
+ * Label for an entry the extractor backdated to a different calendar day than
+ * now — the user's safety net to catch a misread time cue. Empty when the
+ * entry lands on today (the common case).
+ */
+function backdateLabel(occurredAt: string | null, timeZone: string): string {
+  if (!occurredAt) return "";
+  const ms = Date.parse(occurredAt);
+  if (Number.isNaN(ms)) return "";
+  const day = (d: Date) =>
+    d.toLocaleDateString("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" });
+  if (day(new Date(ms)) === day(new Date())) return "";
+  const label = new Date(ms).toLocaleDateString("en-US", {
+    timeZone,
+    weekday: "short",
+    month: "numeric",
+    day: "numeric",
+  });
+  return ` 📅 for ${label}`;
+}
+
 /** Human-readable confirmation for what got extracted. */
-export function confirmationText(entries: ExtractedEntry[]): string {
+export function confirmationText(entries: ExtractedEntry[], timeZone: string): string {
   if (entries.length === 0) return "📝 Saved, but I didn't find anything to extract.";
   const lines = entries.map((e) => {
     const scores = [
@@ -182,7 +203,7 @@ export function confirmationText(entries: ExtractedEntry[]): string {
     ]
       .filter(Boolean)
       .join(", ");
-    return `• ${e.category}: ${e.summary}${scores ? ` (${scores})` : ""}`;
+    return `• ${e.category}: ${e.summary}${scores ? ` (${scores})` : ""}${backdateLabel(e.occurred_at, timeZone)}`;
   });
   return `📝 Logged ${entries.length === 1 ? "1 entry" : `${entries.length} entries`}:\n${lines.join("\n")}`;
 }

@@ -118,7 +118,7 @@ export function createBot(env: Env): Bot {
         mediaGroupId: ctx.message.media_group_id ?? null,
       });
 
-      const text = confirmationText(entries);
+      const text = confirmationText(entries, env.TIMEZONE);
       const keyboard = rerouteKeyboard("question", messageId);
       if (created) {
         // First (or only) photo: send the confirmation and remember it so
@@ -178,7 +178,7 @@ export function createBot(env: Env): Bot {
       const { entries, delivery } = await extractEntries(env, msg.raw_text);
       await insertEntries(env, messageId, msg.created_at, entries);
       await setMessageDelivery(env, messageId, delivery, msg.wps);
-      await ctx.reply(confirmationText(entries));
+      await ctx.reply(confirmationText(entries, env.TIMEZONE));
     }
     // Remove the button so it can't be double-tapped.
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
@@ -212,7 +212,7 @@ async function handleRetry(env: Env, ctx: Context): Promise<boolean> {
       const { entries, delivery } = await extractEntries(env, existing.raw_text);
       await insertEntries(env, existing.id, existing.created_at, entries);
       await setMessageDelivery(env, existing.id, delivery, existing.wps);
-      await ctx.reply(confirmationText(entries), {
+      await ctx.reply(confirmationText(entries, env.TIMEZONE), {
         reply_markup: rerouteKeyboard("question", existing.id),
       });
     }
@@ -255,7 +255,7 @@ async function handleAsEntry(
     r2Key,
     durationSec,
   });
-  await ctx.reply(confirmationText(entries), {
+  await ctx.reply(confirmationText(entries, env.TIMEZONE), {
     reply_markup: rerouteKeyboard("question", messageId),
   });
 }

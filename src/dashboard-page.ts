@@ -50,6 +50,7 @@ export function dashboardPage(key: string | null): Response {
   }
 
   .meta { opacity: .55; font-size: .78rem; }
+  .edate { font-size: .72rem; opacity: .8; white-space: nowrap; padding: .02rem .3rem; border: 1px solid currentColor; border-radius: 3px; margin-left: .25rem; }
   .head { cursor: pointer; user-select: none; }
   .badge { display: inline-block; border-radius: 3px; padding: 0 .45rem; margin-right: .3rem; font-size: .75rem; border: 1px solid var(--line); }
   .entry { padding: .25rem 0; margin: .35rem 0; font-size: .85rem; display: flex; align-items: flex-start; gap: .5rem; }
@@ -355,11 +356,14 @@ function renderMessage(m) {
     ? '<div class="meta">' + icon('mic') + ' ' + m.delivery.tags.map(esc).join(', ') + (m.delivery.note ? ' — ' + esc(m.delivery.note) : '') + (m.wps ? ' · ' + m.wps + ' w/s' : '') + '</div>'
     : (m.wps ? '<div class="meta">' + icon('mic') + ' ' + m.wps + ' w/s</div>' : '');
   const answer = m.answer ? '<div class="answer md">' + md(m.answer.text) + '</div>' : '';
+  const sameDay = (a, b) => new Date(a * 1000).toDateString() === new Date(b * 1000).toDateString();
   const entryRows = m.entries.map(e =>
     '<div class="entry">' +
     '<span class="catbadge" style="border-color:' + (CAT[e.category]||CAT.other) + ';color:' + (CAT[e.category]||CAT.other) + '">' + icon(CAT_IC[e.category] || 'tag') + esc(e.category) + '</span>' +
     '<span class="esum">' + esc(e.summary) +
     ((e.mood != null || e.energy != null) ? ' <em class="meta">(' + [e.mood != null ? 'mood ' + e.mood : null, e.energy != null ? 'energy ' + e.energy : null].filter(Boolean).join(', ') + ')</em>' : '') +
+    // Backdated entry: extractor placed it on a different day than the message.
+    ((e.ts != null && !sameDay(e.ts, m.createdAt)) ? ' <span class="edate" title="Logged for an earlier date">📅 ' + new Date(e.ts * 1000).toLocaleDateString([], {weekday:'short', month:'numeric', day:'numeric'}) + '</span>' : '') +
     '</span>' +
     (e.id != null ? '<button class="del delE" data-eid="' + e.id + '" title="Delete this entry">' + icon('trash') + '</button>' : '') +
     '</div>').join('');
