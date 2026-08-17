@@ -26,6 +26,10 @@ import type { Delivery } from "./types";
 const DAY = 86400;
 const HOUR = 3600;
 
+// Master switch for all outbound scheduled messages (pings, daily recap,
+// weekly analysis). Voice-note healing is unaffected. Flip to re-enable.
+const SCHEDULED_MESSAGES_ENABLED = false;
+
 // Smart-ping tuning
 const PING_WINDOW = { start: 9, end: 20 }; // local hours, inclusive
 const MAX_PINGS_PER_DAY = 4;
@@ -108,6 +112,7 @@ export async function runScheduled(env: Env): Promise<void> {
   if (new Date().getUTCMinutes() >= 5) return;
 
   await purgeExpiredAuth(env).catch(() => {});
+  if (!SCHEDULED_MESSAGES_ENABLED) return;
   const { hour, weekday } = localParts(env);
 
   if (weekday === WEEKLY_RECAP.weekday && hour === WEEKLY_RECAP.hour) {
