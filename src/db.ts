@@ -199,15 +199,38 @@ export async function setMessageRole(env: Env, id: number, role: string): Promis
   await env.DB.prepare(`UPDATE messages SET role = ? WHERE id = ?`).bind(role, id).run();
 }
 
-export async function setMessageWords(
+/**
+ * Store the transcript + word timings. This is the LAST step of voice
+ * completion — a NULL raw_text is the marker the cron sweep uses to find
+ * rows whose pipeline was killed mid-flight, so it must only be set once
+ * the extracted entries are safely in.
+ */
+export async function setMessageTranscript(
   env: Env,
-  telegramMessageId: number,
+  id: number,
+  text: string,
   words: unknown[] | null,
 ): Promise<void> {
-  if (!words || words.length === 0) return;
-  await env.DB.prepare(`UPDATE messages SET words_json = ? WHERE telegram_message_id = ?`)
-    .bind(JSON.stringify(words), telegramMessageId)
+  await env.DB.prepare(`UPDATE messages SET raw_text = ?, words_json = ? WHERE id = ?`)
+    .bind(text, words && words.length > 0 ? JSON.stringify(words) : null, id)
     .run();
+}
+
+/** Voice rows archived to R2 but never transcribed — killed mid-pipeline. */
+export async function stuckVoiceMessages(
+  env: Env,
+  olderThan: number,
+  newerThan: number,
+): Promise<MessageRow[]> {
+  const res = await env.DB.prepare(
+    `SELECT * FROM messages
+     WHERE source = 'telegram_voice' AND raw_text IS NULL AND r2_key IS NOT NULL
+       AND created_at <= ? AND created_at >= ?
+     ORDER BY id`,
+  )
+    .bind(olderThan, newerThan)
+    .all<MessageRow>();
+  return res.results;
 }
 
 export async function setMessageDelivery(

@@ -1,7 +1,13 @@
 import { Bot, Context, InlineKeyboard } from "grammy";
 import type { Env, Intent } from "./types";
-import { classifyIntent, answerQuestion } from "./llm";
-import { ingestEntry, ingestPhoto, confirmationText, transcribe } from "./pipeline";
+import { classifyIntent } from "./llm";
+import {
+  ingestEntry,
+  ingestPhoto,
+  confirmationText,
+  completeVoiceStub,
+  answerWithContext,
+} from "./pipeline";
 import { downloadTelegramFile, stripMarkdown } from "./telegram-api";
 import {
   insertMessage,
@@ -10,19 +16,18 @@ import {
   entryCountForMessage,
   setMessageRole,
   setMessageDelivery,
-  setMessageWords,
   setReplyMessageId,
   deleteEntriesForMessage,
   insertEntries,
-  entriesSince,
-  recentConversation,
   createLoginToken,
   now,
 } from "./db";
 import { extractEntries } from "./llm";
 
-const DAY = 86400;
-const ANSWER_CONTEXT_DAYS = 14;
+// Longest voice note the webhook attempts inline. The full pipeline (Whisper +
+// classify + extract) must fit Workers' ~30s post-response budget; anything
+// longer goes straight to the cron sweep, which has a 15-minute budget.
+const INLINE_VOICE_LIMIT_SEC = 240;
 
 export function createBot(env: Env): Bot {
   // Webhook replies are disabled because the webhook route ACKs before the
@@ -79,6 +84,7 @@ export function createBot(env: Env): Bot {
   bot.on("message:voice", async (ctx) => {
     if (await handleRetry(env, ctx)) return;
     await ctx.react("👀").catch(() => {});
+    let messageId: number | null = null;
     try {
       const voice = ctx.message.voice;
       const audio = await downloadTelegramFile(env, voice.file_id);
@@ -87,14 +93,45 @@ export function createBot(env: Env): Bot {
       const r2Key = `voice/${ctx.message.message_id}-${Date.now()}.oga`;
       await env.MEDIA.put(r2Key, audio);
 
-      const { text: transcript, words } = await transcribe(env, audio);
-      await routeMessage(env, ctx, transcript, "telegram_voice", r2Key, voice.duration);
-      await setMessageWords(env, ctx.message.message_id, words);
+      // Save the stub row BEFORE transcribing: if the webhook budget kills us
+      // mid-pipeline, the cron sweep finds the transcript-less row and
+      // finishes the job — the note is delayed, never lost.
+      messageId = await insertMessage(env, {
+        telegramMessageId: ctx.message.message_id,
+        source: "telegram_voice",
+        role: "entry",
+        rawText: null,
+        r2Key,
+      });
+
+      if (voice.duration > INLINE_VOICE_LIMIT_SEC) {
+        await ctx.reply(
+          "Long one 🎙️ Transcribing in the background — I'll confirm within ~10 minutes.",
+        );
+        return;
+      }
+
+      const { intent, replyText } = await completeVoiceStub(
+        env,
+        { id: messageId, r2_key: r2Key, created_at: now() },
+        {
+          audio,
+          durationSec: voice.duration,
+          forceQuestion: ctx.message.reply_to_message?.from?.is_bot === true,
+        },
+      );
+      await ctx.reply(intent === "question" ? stripMarkdown(replyText) : replyText, {
+        reply_markup: rerouteKeyboard(intent === "question" ? "entry" : "question", messageId),
+      });
       await ctx.react("👍").catch(() => {});
     } catch (err) {
       console.error("voice handler failed", err);
       await ctx.react("👎").catch(() => {});
-      await ctx.reply("Something went wrong processing that voice note — try again?");
+      await ctx.reply(
+        messageId != null
+          ? "That voice note hit a snag — the audio is saved and I'll retry automatically within ~10 minutes."
+          : "Something went wrong processing that voice note — try again?",
+      );
     }
   });
 
@@ -205,7 +242,11 @@ async function handleRetry(env: Env, ctx: Context): Promise<boolean> {
   const existing = await getMessageByTelegramId(env, tgId);
   if (!existing) return false;
 
-  if (existing.role === "entry" && existing.raw_text) {
+  if (!existing.raw_text && existing.r2_key?.startsWith("voice/")) {
+    // First attempt died before the transcript landed — finish the stub.
+    const { replyText } = await completeVoiceStub(env, existing);
+    await ctx.reply(replyText, { reply_markup: rerouteKeyboard("question", existing.id) });
+  } else if (existing.role === "entry" && existing.raw_text) {
     const entryCount = await entryCountForMessage(env, existing.id);
     if (entryCount === 0) {
       // First attempt died between saving the raw message and extraction — heal it.
@@ -222,38 +263,22 @@ async function handleRetry(env: Env, ctx: Context): Promise<boolean> {
 }
 
 /** The routing layer: replies to the bot are conversation; otherwise classify. */
-async function routeMessage(
-  env: Env,
-  ctx: Context,
-  text: string,
-  source: string,
-  r2Key?: string,
-  durationSec?: number,
-): Promise<void> {
+async function routeMessage(env: Env, ctx: Context, text: string, source: string): Promise<void> {
   const isReplyToBot = ctx.message?.reply_to_message?.from?.is_bot === true;
   const intent: Intent = isReplyToBot ? "question" : await classifyIntent(env, text);
 
   if (intent === "entry") {
-    await handleAsEntry(env, ctx, text, source, r2Key, durationSec);
+    await handleAsEntry(env, ctx, text, source);
   } else {
-    await handleAsQuestion(env, ctx, text, source, r2Key);
+    await handleAsQuestion(env, ctx, text, source);
   }
 }
 
-async function handleAsEntry(
-  env: Env,
-  ctx: Context,
-  text: string,
-  source: string,
-  r2Key?: string,
-  durationSec?: number,
-): Promise<void> {
+async function handleAsEntry(env: Env, ctx: Context, text: string, source: string): Promise<void> {
   const { messageId, entries } = await ingestEntry(env, {
     text,
     source,
     telegramMessageId: ctx.message?.message_id,
-    r2Key,
-    durationSec,
   });
   await ctx.reply(confirmationText(entries, env.TIMEZONE), {
     reply_markup: rerouteKeyboard("question", messageId),
@@ -265,24 +290,14 @@ async function handleAsQuestion(
   ctx: Context,
   text: string,
   source: string,
-  r2Key?: string,
 ): Promise<void> {
   const messageId = await insertMessage(env, {
     telegramMessageId: ctx.message?.message_id,
     source,
     role: "question",
     rawText: text,
-    r2Key,
   });
   const answer = await answerWithContext(env, text);
   await insertMessage(env, { source: "bot", role: "assistant", rawText: answer });
   await ctx.reply(stripMarkdown(answer), { reply_markup: rerouteKeyboard("entry", messageId) });
-}
-
-export async function answerWithContext(env: Env, question: string): Promise<string> {
-  const [entries, conversation] = await Promise.all([
-    entriesSince(env, now() - ANSWER_CONTEXT_DAYS * DAY),
-    recentConversation(env, DAY),
-  ]);
-  return answerQuestion(env, question, { entries, conversation });
 }

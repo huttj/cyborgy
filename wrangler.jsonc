@@ -25,9 +25,14 @@
     }
   ],
 
-  // Single hourly cron; src/index.ts dispatches pings / daily recap /
-  // weekly recap based on the local hour in TIMEZONE (DST-proof).
-  "triggers": { "crons": ["0 * * * *"] },
+  // One cron every 10 minutes: each tick sweeps voice notes whose webhook
+  // attempt was killed mid-pipeline; the :00 tick additionally dispatches
+  // pings / daily recap / weekly recap by local hour in TIMEZONE (DST-proof).
+  "triggers": { "crons": ["*/10 * * * *"] },
+
+  // Persist console.log/error as searchable Workers Logs (dashboard → cyborgy
+  // → Logs). Without this, background failures after the webhook ACK vanish.
+  "observability": { "enabled": true },
 
   "routes": [{ "pattern": "cyborgy.app", "custom_domain": true }],
   // Keep workers.dev alive alongside the custom domain — the Telegram webhook

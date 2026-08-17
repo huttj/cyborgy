@@ -1,6 +1,7 @@
 import type { Env, EntryRow } from "./types";
 import { writeDailyRecap, writeWeeklyAnalysis } from "./llm";
-import { sendToUser, sendPhotoToUser } from "./telegram-api";
+import { completeVoiceStub } from "./pipeline";
+import { tg, sendToUser, sendPhotoToUser } from "./telegram-api";
 import {
   entriesSince,
   deliverySince,
@@ -11,6 +12,7 @@ import {
   saveReport,
   purgeExpiredAuth,
   insertMessage,
+  stuckVoiceMessages,
   now,
 } from "./db";
 
@@ -66,7 +68,45 @@ function localMidnight(env: Env): number {
   return Math.floor((midnightLocal.getTime() + offsetMs) / 1000);
 }
 
+// Voice-sweep tuning: wait out a possibly-live inline attempt before healing,
+// and stop retrying rows so old that transcription is evidently never working.
+const SWEEP_MIN_AGE = 120; // seconds
+const SWEEP_MAX_AGE = 7 * DAY;
+
+/**
+ * Finish voice messages whose webhook attempt was killed mid-pipeline (stub
+ * row saved, transcript never landed). Runs on every cron tick with the
+ * scheduled handler's 15-minute budget — long notes that can't fit the
+ * webhook's ~30s window land here by design.
+ */
+async function sweepStuckVoice(env: Env): Promise<void> {
+  const t = now();
+  const stuck = await stuckVoiceMessages(env, t - SWEEP_MIN_AGE, t - SWEEP_MAX_AGE);
+  for (const msg of stuck) {
+    try {
+      const { replyText } = await completeVoiceStub(env, msg);
+      await sendToUser(env, replyText);
+      if (msg.telegram_message_id != null) {
+        await tg(env, "setMessageReaction", {
+          chat_id: Number(env.AUTHORIZED_USER_ID),
+          message_id: msg.telegram_message_id,
+          reaction: [{ type: "emoji", emoji: "👍" }],
+        }).catch(() => {});
+      }
+      console.log(`voice sweep: healed message ${msg.id}`);
+    } catch (err) {
+      console.error(`voice sweep: message ${msg.id} failed`, err);
+    }
+  }
+}
+
 export async function runScheduled(env: Env): Promise<void> {
+  // Every tick (10 min): heal voice notes that died mid-pipeline.
+  await sweepStuckVoice(env).catch((err) => console.error("voice sweep:", err));
+
+  // Everything below is hourly business — only on the top-of-the-hour tick.
+  if (new Date().getUTCMinutes() >= 5) return;
+
   await purgeExpiredAuth(env).catch(() => {});
   const { hour, weekday } = localParts(env);
 

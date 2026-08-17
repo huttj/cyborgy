@@ -1,16 +1,23 @@
-import type { Env, ExtractedEntry, Delivery, Image, TranscriptWord } from "./types";
-import { extractEntries } from "./llm";
+import type { Env, ExtractedEntry, Delivery, Image, Intent, TranscriptWord } from "./types";
+import { extractEntries, classifyIntent, answerQuestion } from "./llm";
 import {
   insertMessage,
   insertEntries,
   setMessageDelivery,
+  setMessageRole,
+  setMessageTranscript,
   createOrGetAlbumMessage,
   addMedia,
   mediaKeysForMessage,
   deleteEntriesForMessage,
+  entriesSince,
+  recentConversation,
   now,
 } from "./db";
 import { arrayBufferToBase64 } from "./telegram-api";
+
+const DAY = 86400;
+const ANSWER_CONTEXT_DAYS = 14;
 
 // Share-sheet photos arrive ungrouped; treat photos within this window as one moment.
 const PHOTO_GROUP_WINDOW = 30; // seconds
@@ -62,6 +69,55 @@ function harvestWords(result: Record<string, unknown>): TranscriptWord[] | null 
     if (words.length > 0) return words;
   }
   return null;
+}
+
+/**
+ * Finish a voice message whose stub row was saved before transcription:
+ * transcribe, route (entry vs question), extract or answer, and return the
+ * reply to surface. Shared by the live Telegram handler and the cron sweep
+ * that heals rows whose first attempt was killed by the ~30s webhook budget.
+ *
+ * Idempotent: raw_text stays NULL until the very end, so a re-run after any
+ * partial death redoes the whole job; entries are wiped before re-insert.
+ */
+export async function completeVoiceStub(
+  env: Env,
+  msg: { id: number; r2_key: string | null; created_at: number },
+  opts: { audio?: ArrayBuffer; durationSec?: number; forceQuestion?: boolean } = {},
+): Promise<{ intent: Intent; replyText: string }> {
+  let audio = opts.audio;
+  if (!audio) {
+    if (!msg.r2_key) throw new Error(`voice message ${msg.id} has no archived audio`);
+    const object = await env.MEDIA.get(msg.r2_key);
+    if (!object) throw new Error(`audio missing in R2: ${msg.r2_key}`);
+    audio = await object.arrayBuffer();
+  }
+  const { text, words } = await transcribe(env, audio);
+
+  const intent: Intent = opts.forceQuestion ? "question" : await classifyIntent(env, text);
+  if (intent === "question") {
+    await setMessageRole(env, msg.id, "question");
+    const answer = await answerWithContext(env, text);
+    await insertMessage(env, { source: "bot", role: "assistant", rawText: answer });
+    await setMessageTranscript(env, msg.id, text, words);
+    return { intent, replyText: answer };
+  }
+
+  // Anchor time cues to capture time — the sweep may run well after the fact.
+  const { entries, delivery } = await extractEntries(env, text, undefined, msg.created_at);
+  await deleteEntriesForMessage(env, msg.id);
+  await insertEntries(env, msg.id, msg.created_at, entries);
+  await setMessageDelivery(env, msg.id, delivery, wordsPerSecond(text, opts.durationSec));
+  await setMessageTranscript(env, msg.id, text, words);
+  return { intent, replyText: confirmationText(entries, env.TIMEZONE) };
+}
+
+export async function answerWithContext(env: Env, question: string): Promise<string> {
+  const [entries, conversation] = await Promise.all([
+    entriesSince(env, now() - ANSWER_CONTEXT_DAYS * DAY),
+    recentConversation(env, DAY),
+  ]);
+  return answerQuestion(env, question, { entries, conversation });
 }
 
 export interface IngestResult {

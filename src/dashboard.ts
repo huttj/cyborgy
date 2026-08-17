@@ -17,7 +17,7 @@ import {
 } from "./db";
 import { extractEntries } from "./llm";
 import { transcribe, loadImages } from "./pipeline";
-import { answerWithContext } from "./bot";
+import { answerWithContext } from "./pipeline";
 import { moodEnergySeries, type Resolution } from "./scheduled";
 
 const DAY = 86400;
