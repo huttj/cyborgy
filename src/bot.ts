@@ -32,7 +32,7 @@ const INLINE_VOICE_LIMIT_SEC = 240;
 export function createBot(env: Env): Bot {
   // Webhook replies are disabled because the webhook route ACKs before the
   // handler finishes — an API call piggybacked on that response would be lost.
-  const bot = new Bot(env.TELEGRAM_BOT_TOKEN, {
+  const bot = new Bot(env.TELEGRAM_BOT_TOKEN ?? "", {
     client: { canUseWebhookReply: () => false },
   });
 
@@ -41,7 +41,7 @@ export function createBot(env: Env): Bot {
   // Single-user bot: drop anything not from the authorized user.
   bot.use(async (ctx, next) => {
     const from = String(ctx.from?.id);
-    const authorized = from === env.AUTHORIZED_USER_ID.trim();
+    const authorized = from === (env.AUTHORIZED_USER_ID ?? "").trim() && from !== "";
     const kind = Object.keys(ctx.update).filter((k) => k !== "update_id")[0];
     console.log(`update: type=${kind} from=${from} authorized=${authorized}`);
     if (!authorized) return;

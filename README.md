@@ -1,10 +1,14 @@
 # cyborgy 🤖
 
-Personal happiness/life tracker as a Telegram bot on Cloudflare Workers. Dump voice notes, texts, and photos about your day; an LLM extracts structured entries (food, exercise, activities, social, moods); you get smart check-in pings, a daily recap, a weekly correlation analysis with charts, and a live dashboard.
+Personal happiness/life tracker on Cloudflare Workers, used in the browser (installable as a PWA). Record voice notes, type, or add photos about your day; an LLM extracts structured entries (food, exercise, activities, social, moods); you get optional check-in pings, a daily recap, and a weekly correlation analysis as web push notifications, plus a live dashboard. A Telegram bot is an optional second client.
 
-**Stack:** Cloudflare Workers + D1 (SQLite) + R2 (media archive) + Workers AI (Whisper transcription) + Anthropic API (extraction: Haiku 4.5, chat/analysis: Opus 4.8) + grammY + QuickChart. Infrastructure cost: $0 on free tiers; only real cost is Anthropic usage (a few $/month).
+**Stack:** Cloudflare Workers (+ static assets in `public/`) + D1 (SQLite) + R2 (media archive) + Workers AI (Whisper transcription) + Anthropic API (extraction: Haiku 4.5, chat/analysis: Opus 4.8) + Web Push (VAPID on WebCrypto) + grammY (optional Telegram) + QuickChart. Infrastructure cost: $0 on free tiers; only real cost is Anthropic usage (a few $/month).
 
-Prior art: `~/Projects/telegram-bots` (the Fly.io voice-journal bot) — used as reference, fully independent deployment.
+Prior art: `~/Projects/telegram-bots` (the Fly.io voice-journal bot). The browser capture pipeline and web push are ported from `~/Projects/todolog`.
+
+## Browser capture
+
+The composer is docked at the bottom of the Stream and Ask tabs: mic, photos, text, Send. Voice records as ~25s segments (a new `MediaRecorder` per segment, webm/opus or mp4 on Safari); each segment uploads and transcribes as soon as it closes, so the transcript shows while you talk and no Whisper call is long. Send stitches the segments (word timings shifted onto one timeline), adds typed text and photos, then routes: **Auto** (Haiku classifies entry vs question), **Log**, or **Ask**. Photos always log. The draft survives a reload; a draft left open for 6 hours is sent by the cron, and a send whose request died is finished by the cron within ~10 minutes.
 
 ## Architecture
 
@@ -27,11 +31,7 @@ Voice/text/photo ──▶ Telegram ──▶ Worker /webhook ─▶ routing lay
 
 ## Setup (one-time)
 
-### 1. Telegram bot
-1. Message [@BotFather](https://t.me/botfather) → `/newbot` → save the token.
-2. Get your numeric user id from [@userinfobot](https://t.me/userinfobot).
-
-### 2. Cloudflare resources
+### 1. Cloudflare resources
 ```bash
 npm install
 npx wrangler login
@@ -41,26 +41,29 @@ npx wrangler r2 bucket create cyborgy-media
 npm run db:migrate                    # apply migrations to remote D1
 ```
 
-### 3. Secrets
+### 2. Secrets
 ```bash
-npx wrangler secret put TELEGRAM_BOT_TOKEN       # from BotFather
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET  # any random string: openssl rand -hex 16
 npx wrangler secret put ANTHROPIC_API_KEY        # console.anthropic.com
-npx wrangler secret put AUTHORIZED_USER_ID       # your numeric Telegram id
+npx wrangler secret put DASHBOARD_KEY            # browser sign-in key: openssl rand -hex 16
 npx wrangler secret put SHORTCUT_TOKEN           # openssl rand -hex 16
-npx wrangler secret put DASHBOARD_KEY            # openssl rand -hex 8
+npm run vapid                                    # prints a web push key pair, then:
+npx wrangler secret put VAPID_PUBLIC_KEY
+npx wrangler secret put VAPID_PRIVATE_KEY        # the JSON (JWK) line
 ```
-Also set `TIMEZONE` in `wrangler.jsonc` if you're not on Pacific time.
+Also set `TIMEZONE` and `PUBLIC_URL` in `wrangler.jsonc`.
 
-### 4. Deploy + wire the webhook
+### 3. Deploy and sign in
+`npm run deploy`, open the site, and sign in with the `DASHBOARD_KEY` (the session cookie lasts 30 days and slides with use). On iPhone, tap Share → **Add to Home Screen** and open it from there; then **Settings → Turn on** notifications. Turn on check-ins / recaps in Settings.
+
+### 4. Optional: Telegram bot
+1. Message [@BotFather](https://t.me/botfather) → `/newbot` → save the token; get your numeric id from [@userinfobot](https://t.me/userinfobot).
+2. Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` (`openssl rand -hex 16`) and `AUTHORIZED_USER_ID` as secrets. With all three set, the bot is on; scheduled messages also go to Telegram.
+3. Wire the webhook:
 ```bash
-npm run deploy    # note your worker URL, e.g. https://cyborgy.<you>.workers.dev
-
 curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
   -d "url=https://cyborgy.<you>.workers.dev/webhook" \
   -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>"
 ```
-Set `PUBLIC_URL` in `wrangler.jsonc` to your worker URL (or custom domain) and redeploy.
 
 ### 5. Apple Watch / iPhone Shortcut
 Create a Shortcut named "Log it" with two actions:
@@ -71,19 +74,18 @@ Then: Watch Ultra → Settings → Action Button → Shortcut → "Log it". Same
 
 ## Usage
 
-- **Send anything** — voice note, text, food photo. The bot classifies it as an entry (logged + extracted) or a question (answered from your journal). Wrong guess? Tap the correction button on its reply.
-- **Force it**: `/note <text>` always saves, `/ask <text>` always answers.
-- **Replies to the bot** are always treated as conversation.
-- **Pings**: a few gentle check-ins a day, skipped when you've logged recently.
-- **Daily recap** at 9pm; **weekly analysis** Sunday 6pm with charts and dashboard link.
-- **Dashboard**: send `/login` to the bot and tap the link — it sets a 90-day session cookie. (`?key=<DASHBOARD_KEY>` still works as a curl/debug fallback.)
+- **Send anything** from the composer — voice, text, photos. Auto mode classifies it as an entry (logged + extracted) or a question (answered from your journal); pick **Log** or **Ask** to force it. The Ask tab always asks.
+- **Fix an extraction**: the ↻ button on a card re-extracts, with an optional typed/dictated steer.
+- **Pings** (Settings): a few gentle check-ins a day, skipped when you've logged recently. A tap on the notification opens the composer.
+- **Daily recap** at 9pm; **weekly analysis** Sunday 6pm (also on the Review tab). Both off by default.
+- **Telegram** (optional): same brain; `/note`, `/ask`, `/login` for a sign-in link. `?key=<DASHBOARD_KEY>` still works as a curl/debug fallback.
 
 ## Development
 
 ```bash
 cp .dev.vars.example .dev.vars   # fill in secrets
 npm run db:migrate:local
-npm run dev                      # local worker; use polling or a tunnel for Telegram testing
+npm run dev                      # local worker at http://localhost:8787 (sign in with DASHBOARD_KEY)
 npm run typecheck
 ```
 

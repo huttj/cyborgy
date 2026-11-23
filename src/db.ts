@@ -176,6 +176,32 @@ export async function appendMemory(env: Env, note: string): Promise<string> {
   return next;
 }
 
+/** Generic JSON value in app_state (settings etc.), or the fallback. */
+export async function getState<T>(env: Env, key: string, fallback: T): Promise<T> {
+  const row = await env.DB.prepare(`SELECT value FROM app_state WHERE key = ?`)
+    .bind(key)
+    .first<{ value: string }>();
+  if (!row) return fallback;
+  try {
+    return { ...fallback, ...(JSON.parse(row.value) as T) };
+  } catch {
+    return fallback;
+  }
+}
+
+export async function setState(env: Env, key: string, value: unknown): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  )
+    .bind(key, JSON.stringify(value), now())
+    .run();
+}
+
+export async function deleteSession(env: Env, token: string): Promise<void> {
+  await env.DB.prepare(`DELETE FROM sessions WHERE token = ?`).bind(token).run();
+}
+
 export async function setReplyMessageId(env: Env, id: number, replyId: number): Promise<void> {
   await env.DB.prepare(`UPDATE messages SET reply_message_id = ? WHERE id = ?`)
     .bind(replyId, id)
@@ -341,7 +367,8 @@ export async function queryMessagesWithEntries(
   opts: { limit?: number; before?: number; q?: string; since?: number } = {},
 ): Promise<Array<MessageRow & { entries: EntryRow[] }>> {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
-  const conds: string[] = [];
+  // Open web drafts (still recording) are not part of the feed yet.
+  const conds: string[] = ["(capture_state IS NULL OR capture_state != 'open')"];
   const binds: unknown[] = [];
   if (opts.before) {
     conds.push("id < ?");
@@ -450,6 +477,7 @@ export async function recentConversation(
   const res = await env.DB.prepare(
     `SELECT * FROM messages
      WHERE role IN ('question', 'assistant') AND created_at >= ?
+       AND raw_text IS NOT NULL AND raw_text != ''
      ORDER BY created_at DESC LIMIT ?`,
   )
     .bind(now() - sinceSeconds, limit)

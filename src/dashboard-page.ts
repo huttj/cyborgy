@@ -1,5 +1,7 @@
 // ---------------------------------------------------------------------------
-// The app shell — Stream / Review / Ask tabs, hash-routed, no framework.
+// The app shell — Stream / Review / Ask / Memory / Settings tabs, hash-routed,
+// no framework. A docked composer (voice, photos, text) captures entries and
+// questions in the browser, so the app works without Telegram.
 // SVG icons (lucide-style) throughout; no emoji in chrome.
 // ---------------------------------------------------------------------------
 
@@ -9,9 +11,15 @@ export function dashboardPage(key: string | null): Response {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
+<meta name="theme-color" content="#e07a5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="cyborgy">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <title>cyborgy</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
@@ -23,7 +31,7 @@ export function dashboardPage(key: string | null): Response {
   body { font-family: -apple-system, system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 0 1rem 4rem; line-height: 1.55; }
   header { position: sticky; top: 0; backdrop-filter: blur(12px); background: color-mix(in srgb, Canvas 82%, transparent); z-index: 10; padding: .8rem 0 .5rem; border-bottom: 1px solid var(--line); margin-bottom: 1rem; }
   header h1 { font-size: 1.15rem; margin: 0 0 .5rem; }
-  nav { display: flex; gap: .4rem; }
+  nav { display: flex; gap: .4rem; flex-wrap: wrap; }
   nav button { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .25rem .9rem; font-size: .9rem; cursor: pointer; }
   nav button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .view { display: none; } .view.on { display: block; }
@@ -101,14 +109,14 @@ export function dashboardPage(key: string | null): Response {
   .entry .delE { float: none; flex: none; align-self: center; }
   .entry .delE .icon { width: 13px; height: 13px; }
   #more { display: block; margin: 1rem auto; }
+  #more[hidden] { display: none; }
+  @media (max-width: 480px) { nav button { padding: .25rem .6rem; font-size: .85rem; } }
   button.std { border: 1px solid var(--line); background: none; color: inherit; border-radius: 4px; padding: .4rem 1rem; cursor: pointer; }
 
   #chat { display: flex; flex-direction: column; gap: .6rem; margin-bottom: 1rem; }
   .msg { padding: .5rem .8rem; border-radius: 4px; max-width: 85%; }
   .msg.q { align-self: flex-end; background: var(--accent); color: #fff; }
   .msg.a { align-self: flex-start; border: 1px solid var(--line); }
-  #askForm { display: flex; gap: .5rem; }
-  #askInput { flex: 1; padding: .55rem .8rem; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; font-size: 1rem; }
   #memText { width: 100%; min-height: 60vh; padding: .7rem .85rem; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; font: inherit; line-height: 1.5; resize: vertical; }
 
   .del { float: right; border: none; background: none; color: inherit; opacity: .4; cursor: pointer; padding: .1rem .2rem; }
@@ -143,6 +151,45 @@ export function dashboardPage(key: string | null): Response {
   .md h1, .md h2, .md h3 { font-size: 1rem; margin: .5rem 0 .15rem; }
   .md code { background: #8882; border-radius: 3px; padding: 0 .25rem; font-size: .85em; }
   footer { margin-top: 3rem; text-align: center; opacity: .35; font-size: .7rem; }
+
+  /* docked composer (Stream + Ask tabs) */
+  body.docked { padding-bottom: calc(9rem + env(safe-area-inset-bottom)); }
+  #dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: none;
+    background: color-mix(in srgb, Canvas 88%, transparent); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line); padding: .5rem 1rem calc(.6rem + env(safe-area-inset-bottom)); }
+  body.docked #dock { display: block; }
+  #dockInner { max-width: 720px; margin: 0 auto; }
+  .dockrow { display: flex; align-items: flex-end; gap: .45rem; }
+  #dockText { flex: 1; min-width: 0; resize: none; max-height: 40vh; padding: .5rem .7rem; border-radius: 6px;
+    border: 1px solid var(--line); background: none; color: inherit; font: inherit; font-size: 1rem; line-height: 1.4; }
+  .dbtn { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 1px solid var(--line); background: none;
+    color: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .dbtn .icon { width: 18px; height: 18px; }
+  .dbtn.send { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .dbtn:disabled { opacity: .4; cursor: default; }
+  #micBtn.rec { background: #ef5350; border-color: #ef5350; color: #fff; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px #ef535033; } }
+  .dockmeta { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-top: .4rem; font-size: .8rem; }
+  .dockmeta .chip { padding: .1rem .6rem; }
+  .dockmeta .grow { flex: 1; }
+  #dockStatus { opacity: .7; }
+  #dockStatus.err { color: #ef5350; opacity: 1; }
+  #dockVoice { font-size: .88rem; opacity: .75; margin-bottom: .4rem; max-height: 22vh; overflow-y: auto; }
+  #dockVoice .pend { font-style: italic; opacity: .7; }
+  #dockPhotos { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .4rem; }
+  #dockPhotos img { height: 48px; border-radius: 4px; }
+  #dockPhotos:empty, #dockVoice:empty { display: none; }
+  .linkbtn { border: none; background: none; color: inherit; opacity: .6; cursor: pointer; font-size: .8rem; padding: .1rem .3rem; }
+  .linkbtn:hover { opacity: 1; }
+  .pendingcard .box { opacity: .75; font-size: .88rem; }
+  .pendingcard .box.err { opacity: 1; border-color: #ef5350; }
+  .badge.proc { border-color: var(--accent); color: var(--accent); }
+
+  /* settings */
+  .setrow { display: flex; align-items: center; gap: .7rem; padding: .55rem 0; border-bottom: 1px solid var(--line); }
+  .setrow .grow { flex: 1; }
+  .setrow input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+  #settings h2 { font-size: 1rem; margin: 1.4rem 0 .3rem; }
 </style>
 </head>
 <body>
@@ -153,6 +200,7 @@ export function dashboardPage(key: string | null): Response {
     <button data-v="review">Review</button>
     <button data-v="ask">Ask</button>
     <button data-v="memory">Memory</button>
+    <button data-v="settings">Settings</button>
   </nav>
 </header>
 
@@ -201,17 +249,53 @@ export function dashboardPage(key: string | null): Response {
 </section>
 
 <section id="ask" class="view">
+  <p class="meta" style="margin:.6rem 0">Ask about your journal, e.g. “how was my mood this week?”. Type or record below.</p>
   <div id="chat"></div>
-  <form id="askForm">
-    <input id="askInput" placeholder="Ask about your journal… (e.g. how was my mood this week?)" autocomplete="off">
-    <button class="std" type="submit">Ask</button>
-  </form>
 </section>
+
+<section id="settings" class="view">
+  <h2>Notifications on this device</h2>
+  <p class="meta" id="pushHint"></p>
+  <div class="setrow"><span class="grow" id="pushState">…</span>
+    <button class="std" id="pushBtn" hidden>Turn on</button>
+    <button class="std" id="pushTest" hidden>Send a test</button>
+    <button class="std" id="installBtn" hidden>Install app</button>
+  </div>
+  <h2>Scheduled messages</h2>
+  <p class="meta">They show in the Stream and come as notifications to each device that turned them on.</p>
+  <label class="setrow"><span class="grow">Check-in pings<br><span class="meta">A few a day, 9am–8pm, skipped when you logged recently</span></span><input type="checkbox" data-n="pings"></label>
+  <label class="setrow"><span class="grow">Daily recap<br><span class="meta">9pm</span></span><input type="checkbox" data-n="daily"></label>
+  <label class="setrow"><span class="grow">Weekly analysis<br><span class="meta">Sunday 6pm, also on the Review tab</span></span><input type="checkbox" data-n="weekly"></label>
+  <h2>Account</h2>
+  <div class="setrow"><span class="grow meta" id="tgState"></span>
+    <form method="POST" action="/logout" style="margin:0"><button class="std">Sign out</button></form>
+  </div>
+</section>
+
+<div id="dock">
+  <div id="dockInner">
+    <div id="dockVoice"></div>
+    <div id="dockPhotos"></div>
+    <div class="dockrow">
+      <button class="dbtn" id="micBtn" title="Record">MIC</button>
+      <button class="dbtn" id="camBtn" title="Add photos">CAM</button>
+      <input type="file" id="photoIn" accept="image/*" multiple hidden>
+      <textarea id="dockText" rows="1" placeholder="Log something, or ask…"></textarea>
+      <button class="dbtn send" id="sendBtn" title="Send">SEND</button>
+    </div>
+    <div class="dockmeta">
+      <span id="modeCtl"><button class="chip mode on" data-m="auto">Auto</button> <button class="chip mode" data-m="entry">Log</button> <button class="chip mode" data-m="question">Ask</button></span>
+      <span id="dockStatus"></span>
+      <span class="grow"></span>
+      <button class="linkbtn" id="discardBtn" hidden>Discard</button>
+    </div>
+  </div>
+</div>
 
 <footer>cyborgy · build ${build} UTC</footer>
 
 <script>
-const KEY = ${JSON.stringify(key ?? "")}; // empty when cookie-authed — requests then rely on the session cookie
+const KEY = ${JSON.stringify(key ?? "").replace(/</g, "\\u003c")}; // empty when cookie-authed — requests then rely on the session cookie
 const BUILD = ${JSON.stringify(build)};
 console.log('cyborgy build', BUILD);
 
@@ -242,6 +326,8 @@ const PATHS = {
   heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.51 4.04 3 5.5l7 7Z"/>',
   bulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/>',
+  square: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   tag: '<path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/>',
 };
 const icon = (name, style) => '<svg class="icon"' + (style ? ' style="' + style + '"' : '') + ' viewBox="0 0 24 24">' + (PATHS[name] || PATHS.tag) + '</svg>';
@@ -255,7 +341,10 @@ const esc = s => s == null ? '' : String(s).replace(/[&<>"]/g, c => ({'&':'&amp;
 const stripMd = s => (s || '').replace(/\\[(.*?)\\]\\(.*?\\)/g, '$1').replace(/[*_#>~]/g, '');
 const md = s => DOMPurify.sanitize(marked.parse(s || ''));
 const withKey = p => KEY ? p + (p.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY) : p;
-const api = (path, opts) => fetch(withKey(path), opts).then(r => r.json());
+const api = (path, opts) => fetch(withKey(path), opts).then(r => {
+  if (r.status === 401) { location.href = '/login'; throw new Error('signed out'); }
+  return r.json();
+});
 
 // Browser dictation for steer notes (voice-first, matching how entries are logged).
 const SPEECH = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -282,7 +371,14 @@ function wireDictation(btn, ta) {
 }
 
 // --- tabs (hash-routed) ---
+let currentView = 'stream';
 function show(v) {
+  currentView = v;
+  document.body.classList.toggle('docked', v === 'stream' || v === 'ask');
+  document.getElementById('modeCtl').hidden = v === 'ask';
+  dockText.placeholder = v === 'ask' ? 'Ask about your journal…' : 'Log something, or ask…';
+  if (v === 'ask') loadChat();
+  if (v === 'settings') loadSettings().catch(() => {});
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('on', s.id === v));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
   location.hash = v;
@@ -327,7 +423,11 @@ function renderMessage(m) {
   card.className = 'card';
   const when = new Date(m.createdAt * 1000).toLocaleString([], {weekday:'short', month:'numeric', day:'numeric', hour:'numeric', minute:'2-digit'});
   const isPhoto = m.r2Key && m.r2Key.startsWith('photo/');
-  const src = m.source.replace('telegram_','');
+  const src = m.source.replace(/^(telegram|web)_/, '');
+  // Audio tracks: browser recordings are ordered segments; Telegram voice is one file.
+  const tracks = (m.audio && m.audio.length)
+    ? m.audio.map(a => ({ src: withKey('/media/' + encodeURIComponent(a.key)), dur: a.duration }))
+    : (m.r2Key && !isPhoto ? [{ src: withKey('/media/' + encodeURIComponent(m.r2Key)), dur: null }] : []);
 
   // LEFT column: one message-type icon (question/voice/text/photo/assistant/…)
   const typeName = m.role === 'question' ? 'help' : (m.role === 'assistant' || m.role === 'broadcast') ? 'bot' : (SRC_IC[src] || 'chat');
@@ -350,7 +450,7 @@ function renderMessage(m) {
   const allWords = stripMd(m.rawText).split(/\\s+/).filter(Boolean);
   let previewText = allWords.length
     ? esc(allWords.slice(0, 16).join(' ')) + (allWords.length > 16 ? ' …' : '')
-    : (isPhoto ? '' : '<em>(no text)</em>');
+    : (m.pending ? '<em>Processing…</em>' : (isPhoto || (m.media && m.media.length) ? '' : '<em>(no text)</em>'));
   if (m.role === 'question') previewText = '<span class="qtext">' + previewText + '</span>';
   const imgs = (m.media && m.media.length) ? m.media : (isPhoto ? [m.r2Key] : []);
   if (imgs.length) {
@@ -377,12 +477,13 @@ function renderMessage(m) {
         ? ((m.role === 'assistant' || m.role === 'broadcast') ? '<div class="md">' + md(m.rawText) + '</div>' : '<div>' + esc(m.rawText) + '</div>')
         : (isPhoto ? '' : '<em>(no text)</em>'));
   if (m.role === 'question') text = '<div class="qfull">' + text + '</div>';
-  const media = imgs.length
-    ? '<div class="gallery">' + imgs.map(k => '<img class="ph" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(k)) + '">').join('') + '</div>'
-    : (m.r2Key
-        ? '<div class="player"><button class="pbtn">' + icon('play') + '</button><div class="ptrack"><div class="pfill"></div></div><span class="ptime">·</span><button class="prate" title="Playback speed">1×</button>' +
-          '<audio preload="metadata" src="' + withKey('/media/' + encodeURIComponent(m.r2Key)) + '"></audio></div>'
-        : '');
+  const media = (imgs.length
+      ? '<div class="gallery">' + imgs.map(k => '<img class="ph" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(k)) + '">').join('') + '</div>'
+      : '') +
+    (tracks.length
+      ? '<div class="player"><button class="pbtn">' + icon('play') + '</button><div class="ptrack"><div class="pfill"></div></div><span class="ptime">·</span><button class="prate" title="Playback speed">1×</button>' +
+        '<audio preload="metadata" src="' + tracks[0].src + '"></audio></div>'
+      : '');
   const delivery = m.delivery
     ? '<div class="meta">' + icon('mic') + ' ' + m.delivery.tags.map(esc).join(', ') + (m.delivery.note ? ' — ' + esc(m.delivery.note) : '') + (m.wps ? ' · ' + m.wps + ' w/s' : '') + '</div>'
     : (m.wps ? '<div class="meta">' + icon('mic') + ' ' + m.wps + ' w/s</div>' : '');
@@ -411,6 +512,7 @@ function renderMessage(m) {
         (m.role === 'entry' && (m.rawText || isPhoto) ? '<button class="del rex" title="Re-run extraction">' + icon('refresh') + '</button>' : '') +
         '<button class="tog" title="Expand/collapse">' + icon('chev') + '</button>' +
         when + ' · <span class="badge">' + esc(src) + '</span>' +
+        (m.pending ? '<span class="badge proc">processing</span>' : '') +
       '</div>' +
       '<div class="preview">' + previewText + digest + '</div>' +
       '<div class="detail">' + text + media + answer + aiblock + '</div>' +
@@ -488,7 +590,8 @@ function renderMessage(m) {
     });
   }
 
-  // custom player + karaoke wiring
+  // custom player + karaoke wiring. A message can have several audio tracks
+  // (browser segments); they play back to back on one timeline.
   const audio = card.querySelector('audio');
   if (audio) {
     const btn = card.querySelector('.pbtn');
@@ -496,23 +599,56 @@ function renderMessage(m) {
     const track = card.querySelector('.ptrack');
     const time = card.querySelector('.ptime');
     const fmt = s => isFinite(s) && s > 0 ? Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0') : '0:00';
-    btn.addEventListener('click', () => audio.paused ? audio.play() : audio.pause());
-    audio.addEventListener('play', () => btn.innerHTML = icon('pause'));
+    const offsets = []; let acc = 0;
+    for (const t of tracks) { offsets.push(acc); acc += t.dur || 0; }
+    const knownTotal = tracks.every(t => t.dur);
+    let cur = 0;
+    const total = () => knownTotal ? acc : audio.duration;
+    const absTime = () => offsets[cur] + (audio.currentTime || 0);
+    // Load track i (if needed), seek to t seconds into it, optionally play.
+    const loadTrack = (i, t, play) => {
+      const go = () => {
+        try { audio.currentTime = t; } catch {}
+        audio.playbackRate = playRate;
+        if (play) audio.play().catch(() => {});
+      };
+      if (i !== cur) {
+        cur = i;
+        audio.src = tracks[i].src;
+        audio.addEventListener('loadedmetadata', go, { once: true });
+        audio.load();
+      } else if (audio.readyState >= 1) go();
+      else audio.addEventListener('loadedmetadata', go, { once: true });
+    };
+    const seekAbs = (t, play) => {
+      let i = tracks.length - 1;
+      while (i > 0 && offsets[i] > t) i--;
+      loadTrack(i, Math.max(0, t - offsets[i]), play);
+    };
+    const paint = () => {
+      const T = total();
+      fill.style.width = (T ? absTime() / T * 100 : 0) + '%';
+      time.textContent = fmt(absTime()) + ' / ' + fmt(T);
+    };
+    btn.addEventListener('click', () => audio.paused ? audio.play().catch(() => {}) : audio.pause());
+    audio.addEventListener('play', () => { btn.innerHTML = icon('pause'); audio.playbackRate = playRate; });
     audio.addEventListener('pause', () => btn.innerHTML = icon('play'));
-    audio.addEventListener('loadedmetadata', () => time.textContent = '0:00 / ' + fmt(audio.duration));
-    audio.addEventListener('timeupdate', () => {
-      fill.style.width = (audio.duration ? audio.currentTime / audio.duration * 100 : 0) + '%';
-      time.textContent = fmt(audio.currentTime) + ' / ' + fmt(audio.duration);
+    audio.addEventListener('loadedmetadata', paint);
+    audio.addEventListener('timeupdate', paint);
+    audio.addEventListener('ended', () => {
+      if (cur < tracks.length - 1) loadTrack(cur + 1, 0, true);
+      else { words.forEach(w => w.classList.remove('active')); loadTrack(0, 0, false); }
     });
+    if (knownTotal) time.textContent = '0:00 / ' + fmt(acc);
     track.addEventListener('click', e => {
       const r = track.getBoundingClientRect();
-      if (audio.duration) audio.currentTime = (e.clientX - r.left) / r.width * audio.duration;
+      const T = total();
+      if (T) seekAbs((e.clientX - r.left) / r.width * T, !audio.paused);
     });
     // Playback speed: global, persisted, synced across every player.
     const rateBtn = card.querySelector('.prate');
     audio.playbackRate = playRate;
     rateBtn.textContent = playRate + '×';
-    audio.addEventListener('play', () => { audio.playbackRate = playRate; });
     rateBtn.addEventListener('click', () => {
       const RATES = [1, 1.5, 2];
       playRate = RATES[(RATES.indexOf(playRate) + 1) % RATES.length] || 1;
@@ -525,13 +661,12 @@ function renderMessage(m) {
     if (words.length) {
       card.querySelector('.transcript').addEventListener('click', e => {
         const w = e.target.closest('.w'); if (!w) return;
-        audio.currentTime = parseFloat(w.dataset.s); audio.play();
+        seekAbs(parseFloat(w.dataset.s), true);
       });
       audio.addEventListener('timeupdate', () => {
-        const t = audio.currentTime;
+        const t = absTime();
         for (const w of words) w.classList.toggle('active', t >= parseFloat(w.dataset.s) && t < parseFloat(w.dataset.e) + 0.15);
       });
-      audio.addEventListener('ended', () => words.forEach(w => w.classList.remove('active')));
     }
   }
   return card;
@@ -690,29 +825,471 @@ document.getElementById('memSave').onclick = async () => {
   memDirty = false; memStatus.textContent = 'saved';
 };
 
-// --- Ask ---
+// --- Ask (chat view) ---
 const chat = document.getElementById('chat');
-document.getElementById('askForm').addEventListener('submit', async e => {
-  e.preventDefault();
-  const input = document.getElementById('askInput');
-  const question = input.value.trim();
-  if (!question) return;
-  input.value = '';
-  chat.insertAdjacentHTML('beforeend', '<div class="msg q">' + esc(question) + '</div>');
-  const pending = document.createElement('div');
-  pending.className = 'msg a md'; pending.textContent = '…thinking';
-  chat.appendChild(pending); pending.scrollIntoView({behavior:'smooth'});
+let chatLoaded = false;
+function chatBubble(cls, html) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + cls;
+  el.innerHTML = html;
+  chat.appendChild(el);
+  return el;
+}
+// Recent questions + answers, so the chat has its history after a reload.
+async function loadChat() {
+  if (chatLoaded) return;
+  chatLoaded = true;
   try {
-    const res = await api('/api/ask', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ question }) });
-    if (res.ok) { pending.innerHTML = md(res.answer); loadMemory(); } // assistant may have saved a memory
-    else pending.textContent = 'Error: ' + (res.error || 'something went wrong');
-  } catch { pending.textContent = 'Error: request failed'; }
-  pending.scrollIntoView({behavior:'smooth'});
+    const data = await api('/api/messages?limit=40&since=' + (Math.floor(Date.now()/1000) - 3*86400));
+    const qs = data.messages.filter(m => m.role === 'question' && m.answer).slice(0, 8).reverse();
+    for (const m of qs) {
+      chatBubble('q', esc(m.rawText));
+      chatBubble('a md', md(m.answer.text));
+    }
+  } catch {}
+}
+
+// --- Composer (docked on Stream + Ask) ---
+// Voice is recorded as a series of short segments: a new MediaRecorder every
+// ~25s, each uploaded as soon as it closes and transcribed on the server, so
+// no single transcription is long and the transcript shows while you talk.
+// The draft (a server message in state 'open') survives a reload.
+const MAX_SEGMENT_MS = 25000;
+const DRAFT_KEY = 'cyborgy.draft';
+const dockText = document.getElementById('dockText');
+const dockVoice = document.getElementById('dockVoice');
+const dockPhotos = document.getElementById('dockPhotos');
+const dockStatus = document.getElementById('dockStatus');
+const micBtn = document.getElementById('micBtn');
+const camBtn = document.getElementById('camBtn');
+const sendBtn = document.getElementById('sendBtn');
+const discardBtn = document.getElementById('discardBtn');
+const photoIn = document.getElementById('photoIn');
+micBtn.innerHTML = icon('mic'); camBtn.innerHTML = icon('camera'); sendBtn.innerHTML = icon('send');
+
+let mode = 'auto';
+let draft = null;           // { id, idP, seq, uploads: [], segments: [], photos: [] }
+let recording = false, stream = null, recorder = null, rollTimer = null, recStart = 0, clockTimer = null;
+let wakeLock = null, pollTimer = null;
+
+function setStatus(text, isErr) {
+  dockStatus.textContent = text || '';
+  dockStatus.classList.toggle('err', !!isErr);
+}
+function saveDraftRef() {
+  try {
+    if (draft && draft.id) localStorage.setItem(DRAFT_KEY, JSON.stringify({ id: draft.id, seq: draft.seq, text: dockText.value }));
+    else if (!dockText.value) localStorage.removeItem(DRAFT_KEY);
+    else localStorage.setItem(DRAFT_KEY, JSON.stringify({ text: dockText.value }));
+  } catch {}
+}
+function newDraft() {
+  return { id: null, idP: null, seq: 0, uploads: [], segments: [], photos: [] };
+}
+// The server message is created lazily, on the first segment or photo.
+function draftId(d) {
+  if (!d.idP) {
+    d.idP = api('/api/capture', { method: 'POST' }).then(r => {
+      if (!r.id) throw new Error(r.error || 'could not start a capture');
+      d.id = r.id;
+      if (d === draft) saveDraftRef();
+      return r.id;
+    });
+  }
+  return d.idP;
+}
+function renderDock() {
+  const d = draft;
+  const segs = d ? d.segments : [];
+  const parts = segs.map(sg => sg.transcript == null
+    ? '<span class="pend">transcribing…</span>'
+    : esc(sg.transcript));
+  dockVoice.innerHTML = segs.length ? icon('mic') + ' ' + parts.join(' ') : '';
+  dockVoice.scrollTop = dockVoice.scrollHeight;
+  dockPhotos.innerHTML = d ? d.photos.map(u => '<img src="' + u + '">').join('') : '';
+  const hasContent = !!(dockText.value.trim() || segs.length || (d && d.photos.length) || recording);
+  discardBtn.hidden = !hasContent;
+  autosize();
+}
+function autosize() {
+  dockText.style.height = 'auto';
+  dockText.style.height = Math.min(dockText.scrollHeight + 2, window.innerHeight * 0.4) + 'px';
+}
+dockText.addEventListener('input', () => { renderDock(); saveDraftRef(); });
+
+// Poll segment transcripts while any are pending.
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  const d = draft;
+  if (!d || !d.id) return;
+  const pending = d.segments.some(sg => sg.transcript == null) || d.uploads.length > 0;
+  if (!pending && !recording) return;
+  pollTimer = setTimeout(async () => {
+    try {
+      const r = await api('/api/capture/' + d.id);
+      if (d !== draft) return;
+      if (r.segments) {
+        for (const sg of r.segments) {
+          const mine = d.segments.find(x => x.seq === sg.seq);
+          if (mine) mine.transcript = sg.transcript;
+        }
+        renderDock();
+      }
+    } catch {}
+    schedulePoll();
+  }, 1500);
+}
+
+const mimeType = () =>
+  typeof MediaRecorder === 'undefined' ? '' :
+  MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' :
+  MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+const streamAlive = st => !!st && st.getAudioTracks().some(t => t.readyState === 'live' && !t.muted);
+
+async function ensureStream() {
+  if (streamAlive(stream)) return stream;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  stream.getAudioTracks().forEach(t => { t.onended = micLost; });
+  return stream;
+}
+function releaseStream() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+}
+
+// One segment: its own MediaRecorder, so every upload is a complete file.
+// Returns a promise that resolves once the segment's upload has started.
+function startSegment() {
+  const d = draft;
+  const mt = mimeType();
+  const rec = new MediaRecorder(stream, mt ? { mimeType: mt } : undefined);
+  const chunks = [];
+  const seq = d.seq++;
+  const startedAt = Date.now();
+  let rolled = false;
+  let resolveStop;
+  rec.stopped = new Promise(r => { resolveStop = r; });
+  const roll = () => {
+    // Close this segment and open the next without a gap. The 1s data
+    // callback is the clock (timers are throttled in background tabs).
+    if (rolled || rec.state !== 'recording') return;
+    rolled = true;
+    rec.stop();
+    if (recorder === rec && recording) startSegment();
+  };
+  rec.ondataavailable = e => {
+    if (e.data && e.data.size > 0) chunks.push(e.data);
+    if (Date.now() - startedAt >= MAX_SEGMENT_MS) roll();
+  };
+  rec.onstop = () => {
+    const duration = (Date.now() - startedAt) / 1000;
+    if (!rec.cancelled && duration >= 0.4 && chunks.length) {
+      const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+      const seg = { seq, duration, transcript: null };
+      d.segments.push(seg);
+      d.segments.sort((a, b) => a.seq - b.seq);
+      const up = draftId(d)
+        .then(id => fetch(withKey('/api/capture/' + id + '/segments?seq=' + seq + '&duration=' + duration.toFixed(2)),
+          { method: 'POST', headers: { 'content-type': blob.type }, body: blob }))
+        .then(r => r.json())
+        .then(r => { if (!r.ok) throw new Error(r.error || 'upload failed'); })
+        .catch(err => { seg.failed = true; seg.transcript = ''; if (d === draft) setStatus('A segment did not upload: ' + err.message, true); })
+        .finally(() => { d.uploads = d.uploads.filter(x => x !== up); if (d === draft) { renderDock(); schedulePoll(); } });
+      d.uploads.push(up);
+      if (d === draft) { saveDraftRef(); renderDock(); schedulePoll(); }
+    }
+    resolveStop();
+  };
+  rec.start(1000);
+  recorder = rec;
+  clearTimeout(rollTimer);
+  rollTimer = setTimeout(roll, MAX_SEGMENT_MS + 2000);
+}
+
+async function startRecording() {
+  if (recording) return;
+  if (typeof MediaRecorder === 'undefined') { setStatus('This browser cannot record audio.', true); return; }
+  try {
+    await ensureStream();
+  } catch (err) {
+    setStatus('No microphone access: ' + (err.message || err), true);
+    return;
+  }
+  if (!draft) draft = newDraft();
+  draftId(draft).catch(err => setStatus(err.message, true));
+  recording = true;
+  micBtn.classList.add('rec'); micBtn.innerHTML = icon('square');
+  setStatus('');
+  recStart = Date.now();
+  clockTimer = setInterval(tickClock, 500); tickClock();
+  try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  startSegment();
+  renderDock();
+}
+function tickClock() {
+  const s = Math.floor((Date.now() - recStart) / 1000);
+  setStatus('Recording ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'));
+}
+// Stop recording; resolves after the last segment's upload has been queued.
+async function stopRecording(cancel) {
+  if (!recording) return;
+  recording = false;
+  clearTimeout(rollTimer); clearInterval(clockTimer);
+  micBtn.classList.remove('rec'); micBtn.innerHTML = icon('mic');
+  setStatus('');
+  const rec = recorder; recorder = null;
+  if (rec && rec.state === 'recording') {
+    rec.cancelled = !!cancel;
+    rec.stop();
+    await rec.stopped;
+  }
+  releaseStream();
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  renderDock();
+}
+// The OS cut the mic (app in the background, call, lock screen). Do not
+// resume by itself: the user must know there is a gap.
+function micLost() {
+  if (!recording) return;
+  stopRecording();
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  setStatus('Recording stopped: the microphone was cut off. Tap the mic to continue.', true);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && recording && !streamAlive(stream)) micLost();
+});
+micBtn.addEventListener('click', () => recording ? stopRecording() : startRecording());
+
+// Photos: downscale to JPEG (max 1600px) in the browser, then upload.
+camBtn.addEventListener('click', () => photoIn.click());
+photoIn.addEventListener('change', async () => {
+  const files = [...photoIn.files];
+  photoIn.value = '';
+  if (!files.length) return;
+  if (!draft) draft = newDraft();
+  const d = draft;
+  for (const f of files) {
+    try {
+      const blob = await toJpeg(f);
+      const url = URL.createObjectURL(blob);
+      d.photos.push(url);
+      renderDock();
+      const up = draftId(d)
+        .then(id => fetch(withKey('/api/capture/' + id + '/photos'), { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: blob }))
+        .then(r => r.json())
+        .then(r => { if (!r.ok) throw new Error(r.error || 'upload failed'); })
+        .catch(err => { if (d === draft) setStatus('A photo did not upload: ' + err.message, true); })
+        .finally(() => { d.uploads = d.uploads.filter(x => x !== up); });
+      d.uploads.push(up);
+    } catch (err) {
+      setStatus('Could not read that photo: ' + (err.message || err), true);
+    }
+  }
+});
+function toJpeg(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const max = 1600;
+      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => b ? resolve(b) : reject(new Error('encode failed')), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('unsupported image')); };
+    img.src = url;
+  });
+}
+
+document.querySelectorAll('#modeCtl .mode').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#modeCtl .mode').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); mode = b.dataset.m;
+});
+
+discardBtn.addEventListener('click', async () => {
+  if (!confirm('Discard this draft (recording, photos and text)?')) return;
+  const d = draft;
+  await stopRecording(true);
+  draft = null; dockText.value = '';
+  saveDraftRef(); renderDock(); setStatus('');
+  if (d && d.idP) {
+    try { const id = await d.idP; await Promise.allSettled(d.uploads); await api('/api/capture/' + id, { method: 'DELETE' }); } catch {}
+  }
+});
+
+// Send is fire-and-forget: the composer clears at once and the result
+// appears in the feed (or the chat on the Ask tab) when it is ready.
+async function send() {
+  const text = dockText.value.trim();
+  const d = draft;
+  const hasMedia = recording || (d && (d.segments.length || d.photos.length || d.uploads.length));
+  if (!text && !hasMedia) return;
+  const onAsk = currentView === 'ask';
+  const sendMode = onAsk ? 'question' : mode;
+  const hadVoice = recording || (d && d.segments.length > 0);
+  await stopRecording();
+  draft = null; dockText.value = '';
+  saveDraftRef(); renderDock(); setStatus('');
+
+  const preview = text || (hadVoice ? 'Voice note' : 'Photo');
+  let placeholder;
+  if (onAsk) {
+    chatBubble('q', esc(text || 'Voice question'));
+    placeholder = chatBubble('a md', '…thinking');
+    placeholder.scrollIntoView({ behavior: 'smooth' });
+  } else {
+    placeholder = document.createElement('div');
+    placeholder.className = 'card pendingcard';
+    placeholder.innerHTML = '<div class="box">' + icon('refresh') + ' Processing… ' + esc(preview.slice(0, 120)) + '</div>';
+    feed.prepend(placeholder);
+    if (feed.querySelector('em')) feed.querySelector('em').remove();
+  }
+  const fail = msg => {
+    if (onAsk) placeholder.textContent = msg;
+    else { const b = placeholder.querySelector('.box'); b.classList.add('err'); b.textContent = msg; }
+  };
+  try {
+    const id = d ? await draftId(d) : await draftId(newDraft());
+    if (d) await Promise.allSettled(d.uploads);
+    const res = await api('/api/capture/' + id + '/send', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, mode: sendMode }),
+    });
+    if (!res.ok) return fail(res.error || 'Something went wrong.');
+    if (res.intent === 'empty') {
+      if (onAsk) placeholder.textContent = 'I did not hear anything in that recording.';
+      else placeholder.remove();
+      return;
+    }
+    const m = res.message;
+    if (onAsk) {
+      if (hadVoice && placeholder.previousSibling) placeholder.previousSibling.innerHTML = esc(m.rawText || '');
+      placeholder.innerHTML = m.answer ? md(m.answer.text)
+        : esc('Logged ' + m.entries.length + (m.entries.length === 1 ? ' entry.' : ' entries.'));
+    } else {
+      rendered.add(m.id);
+      const card = renderMessage(m);
+      if (m.answer) card.classList.add('open');
+      placeholder.replaceWith(card);
+    }
+    if (m.role === 'question') loadMemory(); // the assistant may have saved a memory
+  } catch (err) {
+    fail('Saved, but the request failed (' + (err.message || err) + '). It will retry automatically.');
+  }
+}
+sendBtn.addEventListener('click', send);
+dockText.addEventListener('keydown', e => {
+  const desktop = window.matchMedia('(pointer: fine)').matches;
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || (desktop && !e.shiftKey))) { e.preventDefault(); send(); }
+});
+
+// Restore a draft after a reload (recording or photos not yet sent).
+async function restoreDraft() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch {}
+  if (!saved) return;
+  if (saved.text) dockText.value = saved.text;
+  if (saved.id) {
+    try {
+      const r = await fetch(withKey('/api/capture/' + saved.id)).then(x => x.ok ? x.json() : null);
+      if (r && r.state === 'open') {
+        draft = newDraft();
+        draft.id = r.id; draft.idP = Promise.resolve(r.id);
+        draft.segments = r.segments.map(sg => ({ seq: sg.seq, duration: sg.duration, transcript: sg.transcript }));
+        draft.seq = Math.max(saved.seq || 0, ...r.segments.map(sg => sg.seq + 1), 0);
+        draft.photos = r.photos.map(k => withKey('/media/' + encodeURIComponent(k)));
+        schedulePoll();
+      }
+    } catch {}
+  }
+  saveDraftRef();
+  renderDock();
+}
+
+// --- Settings ---
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); deferredInstall = e;
+  document.getElementById('installBtn').hidden = false;
+});
+document.getElementById('installBtn').onclick = async () => {
+  if (deferredInstall) { await deferredInstall.prompt(); deferredInstall = null; }
+  document.getElementById('installBtn').hidden = true;
+};
+function b64urlBytes(s) {
+  const pad = '='.repeat((4 - s.length % 4) % 4);
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + pad);
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
+}
+async function currentSub() {
+  if (!pushSupported) return null;
+  try { const reg = await navigator.serviceWorker.ready; return await reg.pushManager.getSubscription(); } catch { return null; }
+}
+async function loadSettings() {
+  const st = await api('/api/settings');
+  document.querySelectorAll('#settings [data-n]').forEach(cb => { cb.checked = !!st.notify[cb.dataset.n]; });
+  document.getElementById('tgState').textContent = st.telegram ? 'The Telegram bot is on too.' : 'Telegram is off. This app is the only client.';
+  const state = document.getElementById('pushState');
+  const btn = document.getElementById('pushBtn');
+  const test = document.getElementById('pushTest');
+  const hint = document.getElementById('pushHint');
+  hint.textContent = '';
+  btn.hidden = true; test.hidden = true;
+  if (!st.push) { state.textContent = 'Push is not set up on the server (no VAPID keys).'; return; }
+  if (!pushSupported) {
+    state.textContent = 'This browser cannot get notifications.';
+    if (isIOS && !isStandalone) hint.textContent = 'On iPhone: tap Share, then “Add to Home Screen”, and open cyborgy from there.';
+    return;
+  }
+  const sub = await currentSub();
+  if (sub) { state.textContent = 'Notifications are on for this device.'; btn.textContent = 'Turn off'; btn.hidden = false; test.hidden = false; }
+  else if (Notification.permission === 'denied') state.textContent = 'Notifications are blocked in the browser settings for this site.';
+  else { state.textContent = 'Notifications are off for this device.'; btn.textContent = 'Turn on'; btn.hidden = false; }
+}
+document.getElementById('pushBtn').onclick = async () => {
+  const sub = await currentSub();
+  if (sub) {
+    await api('/api/push/unsubscribe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {});
+    await sub.unsubscribe();
+    return loadSettings();
+  }
+  try {
+    const { key } = await api('/api/push/key');
+    if (!key) throw new Error('no server key');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return loadSettings();
+    const reg = await navigator.serviceWorker.ready;
+    const nsub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlBytes(key) });
+    await api('/api/push/subscribe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(nsub.toJSON()) });
+  } catch (err) { alert('Could not turn on notifications: ' + (err.message || err)); }
+  loadSettings();
+};
+document.getElementById('pushTest').onclick = async () => {
+  const r = await api('/api/push/test', { method: 'POST' });
+  document.getElementById('pushHint').textContent = r.sent ? 'Sent to ' + r.sent + (r.sent === 1 ? ' device.' : ' devices.') : 'No device got it.';
+};
+document.querySelectorAll('#settings [data-n]').forEach(cb => cb.onchange = async () => {
+  const notify = {}; notify[cb.dataset.n] = cb.checked;
+  await api('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ notify }) });
 });
 
 // --- boot ---
-show(['stream','review','ask'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'stream');
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+show(['stream','review','ask','memory','settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'stream');
 loadFeed(true);
+restoreDraft();
+// A notification tap opens /?compose=1: focus the composer to answer it.
+if (new URLSearchParams(location.search).get('compose')) {
+  history.replaceState(null, '', location.pathname + location.hash);
+  setTimeout(() => dockText.focus(), 300);
+}
 </script>
 </body>
 </html>`;

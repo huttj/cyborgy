@@ -1,5 +1,10 @@
 import type { Env } from "./types";
 
+/** True when the optional Telegram bot is configured. */
+export function telegramEnabled(env: Env): boolean {
+  return !!(env.TELEGRAM_BOT_TOKEN && env.AUTHORIZED_USER_ID && env.TELEGRAM_WEBHOOK_SECRET);
+}
+
 /** Thin raw Bot API helper for outbound sends from cron jobs (no grammY context). */
 export async function tg(
   env: Env,
@@ -22,6 +27,7 @@ export function stripMarkdown(s: string): string {
 }
 
 export async function sendToUser(env: Env, text: string): Promise<void> {
+  if (!telegramEnabled(env)) return;
   // Telegram caps messages at 4096 chars; chunk on paragraph boundaries.
   const chunks = chunkText(stripMarkdown(text), 4000);
   for (const chunk of chunks) {
@@ -30,6 +36,7 @@ export async function sendToUser(env: Env, text: string): Promise<void> {
 }
 
 export async function sendPhotoToUser(env: Env, photoUrl: string, caption: string): Promise<void> {
+  if (!telegramEnabled(env)) return;
   await tg(env, "sendPhoto", {
     chat_id: Number(env.AUTHORIZED_USER_ID),
     photo: photoUrl,

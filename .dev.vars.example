@@ -1,7 +1,11 @@
 # Copy to .dev.vars for local development (wrangler dev)
+ANTHROPIC_API_KEY=
+DASHBOARD_KEY=
+SHORTCUT_TOKEN=
+# Web push (optional): npm run vapid
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+# Optional Telegram bot (all three, or none)
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBHOOK_SECRET=
-ANTHROPIC_API_KEY=
 AUTHORIZED_USER_ID=
-SHORTCUT_TOKEN=
-DASHBOARD_KEY=

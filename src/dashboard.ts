@@ -1,4 +1,5 @@
-import type { Env, Delivery } from "./types";
+import type { Env, Delivery, MessageRow, EntryRow, AudioSegmentRow } from "./types";
+import { segmentsByMessageIds } from "./capture";
 import {
   entriesSince,
   latestReport,
@@ -39,47 +40,103 @@ export async function messagesData(env: Env, params: URLSearchParams): Promise<R
   // Pair Q→A: each assistant row folds into the nearest preceding question,
   // so the feed shows one card per exchange.
   const consumed = new Set<number>();
-  const answerFor = new Map<number, (typeof rows)[number]>();
+  const answerFor = new Map<number, MessageRow>();
+  // Browser questions name their answer row (answer_id), so quick successive
+  // questions pair correctly; the answer may sit outside this page.
+  const byId = new Map(rows.map((r) => [r.id, r] as const));
+  const missing = rows.filter((r) => r.answer_id != null && !byId.has(r.answer_id)).map((r) => r.answer_id!);
+  const extra = missing.length
+    ? (
+        await env.DB.prepare(`SELECT * FROM messages WHERE id IN (${missing.map(() => "?").join(",")})`)
+          .bind(...missing)
+          .all<MessageRow>()
+      ).results
+    : [];
+  const anyRow = new Map<number, MessageRow>([...rows, ...extra].map((r) => [r.id, r] as const));
+  for (const r of rows) {
+    if (r.answer_id != null && anyRow.has(r.answer_id)) {
+      answerFor.set(r.id, anyRow.get(r.answer_id)!);
+      consumed.add(r.answer_id);
+    }
+  }
+  // Older rows (Telegram): fold each assistant row into the nearest preceding question.
   let lastQuestion: (typeof rows)[number] | null = null;
   for (const r of [...rows].sort((a, b) => a.id - b.id)) {
-    if (r.role === "question") lastQuestion = r;
+    if (consumed.has(r.id)) continue;
+    if (r.role === "question" && r.answer_id == null) lastQuestion = r;
     else if (r.role === "assistant" && lastQuestion && !answerFor.has(lastQuestion.id)) {
       answerFor.set(lastQuestion.id, r);
       consumed.add(r.id);
     }
   }
   const messages = rows.filter((r) => !consumed.has(r.id));
-  const mediaMap = await mediaByMessageIds(env, messages.map((m) => m.id));
+  const ids = messages.map((m) => m.id);
+  const [mediaMap, segMap] = await Promise.all([
+    mediaByMessageIds(env, ids),
+    segmentsByMessageIds(env, ids),
+  ]);
 
   return Response.json({
-    messages: messages.map((m) => ({
-      answer: answerFor.has(m.id)
-        ? { text: answerFor.get(m.id)!.raw_text, createdAt: answerFor.get(m.id)!.created_at }
-        : null,
-      id: m.id,
-      createdAt: m.created_at,
-      source: m.source,
-      role: m.role,
-      rawText: m.raw_text,
-      r2Key: m.r2_key,
-      // All image keys (albums); falls back to the single r2_key for old photos.
-      media: mediaMap.get(m.id) ?? (m.r2_key?.startsWith("photo/") ? [m.r2_key] : []),
-      wps: m.wps,
-      words: m.words_json ? (JSON.parse(m.words_json) as unknown[]) : null,
-      delivery: m.delivery_json ? (JSON.parse(m.delivery_json) as Delivery) : null,
-      entries: m.entries.map((e) => ({
-        id: e.id,
-        ts: e.ts,
-        category: e.category,
-        summary: e.summary,
-        entities: JSON.parse(e.entities) as string[],
-        mood: e.mood,
-        energy: e.energy,
-        notes: e.notes,
-      })),
-    })),
+    messages: messages.map((m) =>
+      messageJson(m, mediaMap.get(m.id), segMap.get(m.id), answerFor.get(m.id) ?? null),
+    ),
     nextBefore: rows.length === limit ? rows[rows.length - 1].id : null,
   });
+}
+
+type FeedRow = MessageRow & { entries: EntryRow[] };
+
+/** One feed card's JSON (shared by the feed and the capture Send response). */
+function messageJson(
+  m: FeedRow,
+  media: string[] | undefined,
+  segments: AudioSegmentRow[] | undefined,
+  answer: MessageRow | null,
+) {
+  return {
+    answer: answer ? { text: answer.raw_text, createdAt: answer.created_at } : null,
+    id: m.id,
+    createdAt: m.created_at,
+    source: m.source,
+    role: m.role,
+    pending: m.capture_state === "sent",
+    rawText: m.raw_text,
+    r2Key: m.r2_key,
+    // All image keys (albums); falls back to the single r2_key for old photos.
+    media: media ?? (m.r2_key?.startsWith("photo/") ? [m.r2_key] : []),
+    // Browser recordings: ordered segments, played back to back.
+    audio: (segments ?? []).map((s) => ({ key: s.r2_key, duration: s.duration })),
+    wps: m.wps,
+    words: m.words_json ? (JSON.parse(m.words_json) as unknown[]) : null,
+    delivery: m.delivery_json ? (JSON.parse(m.delivery_json) as Delivery) : null,
+    entries: m.entries.map((e) => ({
+      id: e.id,
+      ts: e.ts,
+      category: e.category,
+      summary: e.summary,
+      entities: JSON.parse(e.entities) as string[],
+      mood: e.mood,
+      energy: e.energy,
+      notes: e.notes,
+    })),
+  };
+}
+
+/** Render one message (plus its answer row, if any) in the feed shape. */
+export async function renderMessage(env: Env, messageId: number, answerId?: number) {
+  const m = await getMessage(env, messageId);
+  if (!m) return null;
+  const entries = (
+    await env.DB.prepare(`SELECT * FROM entries WHERE message_id = ? ORDER BY id`)
+      .bind(messageId)
+      .all<EntryRow>()
+  ).results;
+  const answer = answerId ? await getMessage(env, answerId) : null;
+  const [mediaMap, segMap] = await Promise.all([
+    mediaByMessageIds(env, [messageId]),
+    segmentsByMessageIds(env, [messageId]),
+  ]);
+  return messageJson({ ...m, entries }, mediaMap.get(messageId), segMap.get(messageId), answer);
 }
 
 /** Charts + categories + latest weekly report, for the Review tab. */
@@ -207,8 +264,11 @@ export async function reprocessMessage(
 export async function deleteMessage(env: Env, id: number): Promise<Response> {
   const msg = await getMessage(env, id);
   await deleteEntriesForMessage(env, id);
+  await env.DB.prepare(`DELETE FROM audio_segments WHERE message_id = ?`).bind(id).run();
   await env.DB.prepare(`DELETE FROM messages WHERE id = ?`).bind(id).run();
-  if (msg?.role === "question") {
+  if (msg?.answer_id) {
+    await env.DB.prepare(`DELETE FROM messages WHERE id = ?`).bind(msg.answer_id).run();
+  } else if (msg?.role === "question") {
     const next = await env.DB.prepare(
       `SELECT id, role FROM messages WHERE id > ? ORDER BY id LIMIT 1`,
     )

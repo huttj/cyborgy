@@ -1,7 +1,9 @@
 import type { Env, EntryRow } from "./types";
 import { writeDailyRecap, writeWeeklyAnalysis } from "./llm";
 import { completeVoiceStub } from "./pipeline";
-import { tg, sendToUser, sendPhotoToUser } from "./telegram-api";
+import { tg, sendToUser, sendPhotoToUser, stripMarkdown, telegramEnabled } from "./telegram-api";
+import { pushToAll } from "./push";
+import { sweepWebCaptures } from "./capture";
 import {
   entriesSince,
   deliverySince,
@@ -13,22 +15,33 @@ import {
   purgeExpiredAuth,
   insertMessage,
   stuckVoiceMessages,
+  getState,
   now,
 } from "./db";
 
-/** Send to Telegram AND record in the feed so outbound messages show in the UI. */
-async function broadcast(env: Env, text: string): Promise<void> {
-  await sendToUser(env, text);
+/**
+ * Record an outbound message in the feed, push it to every subscribed
+ * browser, and send it to Telegram when the bot is configured.
+ */
+async function broadcast(env: Env, text: string, title = "cyborgy"): Promise<void> {
   await insertMessage(env, { source: "bot", role: "broadcast", rawText: text });
+  // ?compose=1 opens the composer, so a check-in can be answered at once.
+  await pushToAll(env, { title, body: stripMarkdown(text), url: "/?compose=1#stream" });
+  await sendToUser(env, text);
 }
+
+/** Which scheduled messages the user turned on (Settings tab). All off by default. */
+export interface NotifySettings {
+  pings: boolean;
+  daily: boolean;
+  weekly: boolean;
+}
+export const NOTIFY_DEFAULTS: NotifySettings = { pings: false, daily: false, weekly: false };
+export const getNotifySettings = (env: Env) => getState<NotifySettings>(env, "notify", NOTIFY_DEFAULTS);
 import type { Delivery } from "./types";
 
 const DAY = 86400;
 const HOUR = 3600;
-
-// Master switch for all outbound scheduled messages (pings, daily recap,
-// weekly analysis). Voice-note healing is unaffected. Flip to re-enable.
-const SCHEDULED_MESSAGES_ENABLED = false;
 
 // Smart-ping tuning
 const PING_WINDOW = { start: 9, end: 20 }; // local hours, inclusive
@@ -104,26 +117,45 @@ async function sweepStuckVoice(env: Env): Promise<void> {
   }
 }
 
+/** Finish browser captures whose Send request died, and tell the user. */
+async function sweepWeb(env: Env): Promise<void> {
+  const done = await sweepWebCaptures(env);
+  const finished = done.filter((d) => d.intent !== "empty");
+  if (finished.length) {
+    await pushToAll(env, {
+      title: "cyborgy",
+      body:
+        finished.length === 1
+          ? "Your recording is processed."
+          : `${finished.length} recordings are processed.`,
+      url: "/#stream",
+    });
+  }
+}
+
 export async function runScheduled(env: Env): Promise<void> {
   // Every tick (10 min): heal voice notes that died mid-pipeline.
-  await sweepStuckVoice(env).catch((err) => console.error("voice sweep:", err));
+  if (telegramEnabled(env)) {
+    await sweepStuckVoice(env).catch((err) => console.error("voice sweep:", err));
+  }
+  await sweepWeb(env).catch((err) => console.error("web capture sweep:", err));
 
   // Everything below is hourly business — only on the top-of-the-hour tick.
   if (new Date().getUTCMinutes() >= 5) return;
 
   await purgeExpiredAuth(env).catch(() => {});
-  if (!SCHEDULED_MESSAGES_ENABLED) return;
+  const notify = await getNotifySettings(env);
   const { hour, weekday } = localParts(env);
 
   if (weekday === WEEKLY_RECAP.weekday && hour === WEEKLY_RECAP.hour) {
-    await runWeeklyRecap(env);
+    if (notify.weekly) await runWeeklyRecap(env);
     return;
   }
   if (hour === DAILY_RECAP_HOUR) {
-    await runDailyRecap(env);
+    if (notify.daily) await runDailyRecap(env);
     return;
   }
-  if (hour >= PING_WINDOW.start && hour <= PING_WINDOW.end) {
+  if (notify.pings && hour >= PING_WINDOW.start && hour <= PING_WINDOW.end) {
     await maybePing(env);
   }
 }
@@ -143,7 +175,7 @@ async function maybePing(env: Env): Promise<void> {
   if (Math.random() > PING_PROBABILITY) return;
 
   const prompt = PING_PROMPTS[Math.floor(Math.random() * PING_PROMPTS.length)];
-  await broadcast(env, prompt);
+  await broadcast(env, prompt, "Check-in");
   await logPing(env, "ping");
 }
 
@@ -159,7 +191,7 @@ async function runDailyRecap(env: Env): Promise<void> {
     return;
   }
   const recap = await writeDailyRecap(env, todayEntries);
-  await broadcast(env, recap);
+  await broadcast(env, recap, "Your day");
   await saveReport(env, "daily", midnight, now(), recap, null);
   await logPing(env, "daily_recap");
 }
@@ -189,7 +221,7 @@ async function runWeeklyRecap(env: Env): Promise<void> {
   if (chartUrl) {
     await sendPhotoToUser(env, chartUrl, "📊 Your week in mood & energy");
   }
-  await broadcast(env, `${report}\n\n📈 Full dashboard: ${dashboardUrl}`);
+  await broadcast(env, `${report}\n\n📈 Full dashboard: ${dashboardUrl}`, "Your week");
   await logPing(env, "weekly_recap");
 }
 

@@ -8,7 +8,8 @@
     "deploy": "wrangler deploy",
     "db:migrate": "wrangler d1 migrations apply cyborgy --remote",
     "db:migrate:local": "wrangler d1 migrations apply cyborgy --local",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "vapid": "node scripts/vapid.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
