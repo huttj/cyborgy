@@ -1,7 +1,7 @@
 // Web Push from the Worker: VAPID (ES256 JWT) auth + RFC 8291 aes128gcm
 // payload encryption, all on WebCrypto (ported from Todolog). No-ops when the
 // VAPID keys are unset.
-import type { Env } from "./types";
+import type { Env, UEnv } from "./types";
 import { now } from "./db";
 
 interface PushSub {
@@ -136,13 +136,15 @@ export function pushEnabled(env: Env): boolean {
   return !!(env.VAPID_PRIVATE_KEY && env.VAPID_PUBLIC_KEY);
 }
 
-/** Push to every subscribed browser/device; prunes dead endpoints. Returns the count delivered. */
-export async function pushToAll(
-  env: Env,
+/** Push to every browser/device this user subscribed; prunes dead endpoints. Returns the count delivered. */
+export async function pushToUser(
+  env: UEnv,
   message: { title: string; body?: string | null; url?: string },
 ): Promise<number> {
   if (!pushEnabled(env)) return 0;
-  const subs = await env.DB.prepare(`SELECT * FROM push_subscriptions`).all<PushSub>();
+  const subs = await env.DB.prepare(`SELECT * FROM push_subscriptions WHERE user_id = ?`)
+    .bind(env.USER_ID)
+    .all<PushSub>();
   const payload = JSON.stringify({
     title: message.title,
     body: (message.body ?? "").slice(0, 400),
@@ -167,17 +169,21 @@ export async function pushToAll(
 }
 
 export async function saveSubscription(
-  env: Env,
+  env: UEnv,
   sub: { endpoint: string; keys: { p256dh: string; auth: string } },
 ): Promise<void> {
+  // An endpoint belongs to one browser; a new sign-in on it moves it to that user.
   await env.DB.prepare(
-    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`,
+    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at, user_id) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth,
+       user_id = excluded.user_id`,
   )
-    .bind(sub.endpoint, sub.keys.p256dh, sub.keys.auth, now())
+    .bind(sub.endpoint, sub.keys.p256dh, sub.keys.auth, now(), env.USER_ID)
     .run();
 }
 
-export async function deleteSubscription(env: Env, endpoint: string): Promise<void> {
-  await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).bind(endpoint).run();
+export async function deleteSubscription(env: UEnv, endpoint: string): Promise<void> {
+  await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?`)
+    .bind(endpoint, env.USER_ID)
+    .run();
 }

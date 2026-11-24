@@ -1,11 +1,14 @@
-import type { Env, ExtractedEntry, Delivery, MessageRow, EntryRow } from "./types";
+import type { Env, UEnv, ExtractedEntry, Delivery, MessageRow, EntryRow, UserRow } from "./types";
+
+// Functions that take a UEnv read or write only that user's rows (USER_ID).
+// Functions that take an Env work by a row id the caller already owns.
 
 export function now(): number {
   return Math.floor(Date.now() / 1000);
 }
 
 export async function insertMessage(
-  env: Env,
+  env: UEnv,
   m: {
     telegramMessageId?: number;
     source: string;
@@ -15,10 +18,10 @@ export async function insertMessage(
   },
 ): Promise<number> {
   const res = await env.DB.prepare(
-    `INSERT INTO messages (telegram_message_id, source, role, raw_text, r2_key, created_at)
-     VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+    `INSERT INTO messages (telegram_message_id, source, role, raw_text, r2_key, created_at, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
   )
-    .bind(m.telegramMessageId ?? null, m.source, m.role, m.rawText, m.r2Key ?? null, now())
+    .bind(m.telegramMessageId ?? null, m.source, m.role, m.rawText, m.r2Key ?? null, now(), env.USER_ID)
     .first<{ id: number }>();
   return res!.id;
 }
@@ -41,15 +44,15 @@ export function resolveEntryTs(occurredAt: string | null | undefined, fallback: 
 }
 
 export async function insertEntries(
-  env: Env,
+  env: UEnv,
   messageId: number,
   ts: number,
   entries: ExtractedEntry[],
 ): Promise<void> {
   if (entries.length === 0) return;
   const stmt = env.DB.prepare(
-    `INSERT INTO entries (message_id, ts, category, summary, entities, mood, energy, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO entries (message_id, ts, category, summary, entities, mood, energy, notes, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   await env.DB.batch(
     entries.map((e) =>
@@ -62,29 +65,32 @@ export async function insertEntries(
         e.mood,
         e.energy,
         e.notes,
+        env.USER_ID,
       ),
     ),
   );
 }
 
-export async function getMessage(env: Env, id: number): Promise<MessageRow | null> {
-  return env.DB.prepare(`SELECT * FROM messages WHERE id = ?`).bind(id).first<MessageRow>();
+export async function getMessage(env: UEnv, id: number): Promise<MessageRow | null> {
+  return env.DB.prepare(`SELECT * FROM messages WHERE id = ? AND user_id = ?`)
+    .bind(id, env.USER_ID)
+    .first<MessageRow>();
 }
 
 // --- photo albums: group by media_group_id, images in message_media ---
 
 /** Create the album's message if it's the first photo; else return the existing one. */
 export async function createOrGetAlbumMessage(
-  env: Env,
+  env: UEnv,
   m: { telegramMessageId: number; rawText: string | null; r2Key: string; mediaGroupId: string },
 ): Promise<{ id: number; created: boolean }> {
   const created = await env.DB.prepare(
-    `INSERT INTO messages (telegram_message_id, source, role, raw_text, r2_key, media_group_id, created_at)
-     VALUES (?, 'telegram_photo', 'entry', ?, ?, ?, ?)
+    `INSERT INTO messages (telegram_message_id, source, role, raw_text, r2_key, media_group_id, created_at, user_id)
+     VALUES (?, 'telegram_photo', 'entry', ?, ?, ?, ?, ?)
      ON CONFLICT(media_group_id) DO NOTHING
      RETURNING id`,
   )
-    .bind(m.telegramMessageId, m.rawText, m.r2Key, m.mediaGroupId, now())
+    .bind(m.telegramMessageId, m.rawText, m.r2Key, m.mediaGroupId, now(), env.USER_ID)
     .first<{ id: number }>();
   if (created) return { id: created.id, created: true };
 
@@ -152,24 +158,27 @@ export async function mediaByMessageIds(
 
 // --- long-term memory (single editable document) ---
 
-export async function getMemory(env: Env): Promise<string> {
-  const row = await env.DB.prepare(`SELECT value FROM app_state WHERE key = 'memory'`).first<{
-    value: string;
-  }>();
+/** app_state keys are per user: "u<id>:<name>". */
+const stateKey = (env: UEnv, name: string) => `u${env.USER_ID}:${name}`;
+
+export async function getMemory(env: UEnv): Promise<string> {
+  const row = await env.DB.prepare(`SELECT value FROM app_state WHERE key = ?`)
+    .bind(stateKey(env, "memory"))
+    .first<{ value: string }>();
   return row?.value ?? "";
 }
 
-export async function setMemory(env: Env, value: string): Promise<void> {
+export async function setMemory(env: UEnv, value: string): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO app_state (key, value, updated_at) VALUES ('memory', ?, ?)
+    `INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
   )
-    .bind(value, now())
+    .bind(stateKey(env, "memory"), value, now())
     .run();
 }
 
 /** Append one bullet to memory; returns the updated document. */
-export async function appendMemory(env: Env, note: string): Promise<string> {
+export async function appendMemory(env: UEnv, note: string): Promise<string> {
   const cur = await getMemory(env);
   const next = (cur.trim() ? cur.trimEnd() + "\n" : "") + "- " + note.trim();
   await setMemory(env, next);
@@ -177,9 +186,9 @@ export async function appendMemory(env: Env, note: string): Promise<string> {
 }
 
 /** Generic JSON value in app_state (settings etc.), or the fallback. */
-export async function getState<T>(env: Env, key: string, fallback: T): Promise<T> {
+export async function getState<T>(env: UEnv, key: string, fallback: T): Promise<T> {
   const row = await env.DB.prepare(`SELECT value FROM app_state WHERE key = ?`)
-    .bind(key)
+    .bind(stateKey(env, key))
     .first<{ value: string }>();
   if (!row) return fallback;
   try {
@@ -189,12 +198,12 @@ export async function getState<T>(env: Env, key: string, fallback: T): Promise<T
   }
 }
 
-export async function setState(env: Env, key: string, value: unknown): Promise<void> {
+export async function setState(env: UEnv, key: string, value: unknown): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
   )
-    .bind(key, JSON.stringify(value), now())
+    .bind(stateKey(env, key), JSON.stringify(value), now())
     .run();
 }
 
@@ -208,9 +217,9 @@ export async function setReplyMessageId(env: Env, id: number, replyId: number): 
     .run();
 }
 
-export async function getMessageByTelegramId(env: Env, tgId: number): Promise<MessageRow | null> {
-  return env.DB.prepare(`SELECT * FROM messages WHERE telegram_message_id = ?`)
-    .bind(tgId)
+export async function getMessageByTelegramId(env: UEnv, tgId: number): Promise<MessageRow | null> {
+  return env.DB.prepare(`SELECT * FROM messages WHERE telegram_message_id = ? AND user_id = ?`)
+    .bind(tgId, env.USER_ID)
     .first<MessageRow>();
 }
 
@@ -244,17 +253,17 @@ export async function setMessageTranscript(
 
 /** Voice rows archived to R2 but never transcribed — killed mid-pipeline. */
 export async function stuckVoiceMessages(
-  env: Env,
+  env: UEnv,
   olderThan: number,
   newerThan: number,
 ): Promise<MessageRow[]> {
   const res = await env.DB.prepare(
     `SELECT * FROM messages
      WHERE source = 'telegram_voice' AND raw_text IS NULL AND r2_key IS NOT NULL
-       AND created_at <= ? AND created_at >= ?
+       AND created_at <= ? AND created_at >= ? AND user_id = ?
      ORDER BY id`,
   )
-    .bind(olderThan, newerThan)
+    .bind(olderThan, newerThan, env.USER_ID)
     .all<MessageRow>();
   return res.results;
 }
@@ -273,17 +282,17 @@ export async function setMessageDelivery(
 
 /** Entry-message delivery metadata in a window, for the weekly analysis. */
 export async function deliverySince(
-  env: Env,
+  env: UEnv,
   since: number,
   until?: number,
 ): Promise<Pick<MessageRow, "created_at" | "delivery_json" | "wps">[]> {
   const res = await env.DB.prepare(
     `SELECT created_at, delivery_json, wps FROM messages
-     WHERE role = 'entry' AND created_at >= ? AND created_at < ?
+     WHERE role = 'entry' AND created_at >= ? AND created_at < ? AND user_id = ?
        AND (delivery_json IS NOT NULL OR wps IS NOT NULL)
      ORDER BY created_at ASC`,
   )
-    .bind(since, until ?? now() + 1)
+    .bind(since, until ?? now() + 1, env.USER_ID)
     .all<Pick<MessageRow, "created_at" | "delivery_json" | "wps">>();
   return res.results;
 }
@@ -292,50 +301,54 @@ export async function deleteEntriesForMessage(env: Env, messageId: number): Prom
   await env.DB.prepare(`DELETE FROM entries WHERE message_id = ?`).bind(messageId).run();
 }
 
-export async function deleteEntry(env: Env, entryId: number): Promise<void> {
-  await env.DB.prepare(`DELETE FROM entries WHERE id = ?`).bind(entryId).run();
+export async function deleteEntry(env: UEnv, entryId: number): Promise<void> {
+  await env.DB.prepare(`DELETE FROM entries WHERE id = ? AND user_id = ?`).bind(entryId, env.USER_ID).run();
 }
 
-export async function entriesSince(env: Env, since: number, until?: number): Promise<EntryRow[]> {
+export async function entriesSince(env: UEnv, since: number, until?: number): Promise<EntryRow[]> {
   const res = await env.DB.prepare(
-    `SELECT * FROM entries WHERE ts >= ? AND ts < ? ORDER BY ts ASC`,
+    `SELECT * FROM entries WHERE user_id = ? AND ts >= ? AND ts < ? ORDER BY ts ASC`,
   )
-    .bind(since, until ?? now() + 1)
+    .bind(env.USER_ID, since, until ?? now() + 1)
     .all<EntryRow>();
   return res.results;
 }
 
-export async function lastEntryTime(env: Env): Promise<number | null> {
+export async function lastEntryTime(env: UEnv): Promise<number | null> {
   const row = await env.DB.prepare(
-    `SELECT created_at FROM messages WHERE role = 'entry' ORDER BY created_at DESC LIMIT 1`,
-  ).first<{ created_at: number }>();
+    `SELECT created_at FROM messages WHERE role = 'entry' AND user_id = ? ORDER BY created_at DESC LIMIT 1`,
+  )
+    .bind(env.USER_ID)
+    .first<{ created_at: number }>();
   return row?.created_at ?? null;
 }
 
-export async function lastPingTime(env: Env, kind: string): Promise<number | null> {
+export async function lastPingTime(env: UEnv, kind: string): Promise<number | null> {
   const row = await env.DB.prepare(
-    `SELECT sent_at FROM pings WHERE kind = ? ORDER BY sent_at DESC LIMIT 1`,
+    `SELECT sent_at FROM pings WHERE kind = ? AND user_id = ? ORDER BY sent_at DESC LIMIT 1`,
   )
-    .bind(kind)
+    .bind(kind, env.USER_ID)
     .first<{ sent_at: number }>();
   return row?.sent_at ?? null;
 }
 
-export async function pingCountSince(env: Env, kind: string, since: number): Promise<number> {
+export async function pingCountSince(env: UEnv, kind: string, since: number): Promise<number> {
   const row = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM pings WHERE kind = ? AND sent_at >= ?`,
+    `SELECT COUNT(*) AS n FROM pings WHERE kind = ? AND sent_at >= ? AND user_id = ?`,
   )
-    .bind(kind, since)
+    .bind(kind, since, env.USER_ID)
     .first<{ n: number }>();
   return row?.n ?? 0;
 }
 
-export async function logPing(env: Env, kind: string): Promise<void> {
-  await env.DB.prepare(`INSERT INTO pings (kind, sent_at) VALUES (?, ?)`).bind(kind, now()).run();
+export async function logPing(env: UEnv, kind: string): Promise<void> {
+  await env.DB.prepare(`INSERT INTO pings (kind, sent_at, user_id) VALUES (?, ?, ?)`)
+    .bind(kind, now(), env.USER_ID)
+    .run();
 }
 
 export async function saveReport(
-  env: Env,
+  env: UEnv,
   kind: string,
   periodStart: number,
   periodEnd: number,
@@ -343,33 +356,34 @@ export async function saveReport(
   dataJson: unknown,
 ): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO reports (kind, period_start, period_end, content_md, data_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO reports (kind, period_start, period_end, content_md, data_json, created_at, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(kind, periodStart, periodEnd, contentMd, JSON.stringify(dataJson ?? null), now())
+    .bind(kind, periodStart, periodEnd, contentMd, JSON.stringify(dataJson ?? null), now(), env.USER_ID)
     .run();
 }
 
 export async function latestReport(
-  env: Env,
+  env: UEnv,
   kind: string,
 ): Promise<{ content_md: string; data_json: string | null; created_at: number } | null> {
   return env.DB.prepare(
-    `SELECT content_md, data_json, created_at FROM reports WHERE kind = ? ORDER BY created_at DESC LIMIT 1`,
+    `SELECT content_md, data_json, created_at FROM reports WHERE kind = ? AND user_id = ?
+     ORDER BY created_at DESC LIMIT 1`,
   )
-    .bind(kind)
+    .bind(kind, env.USER_ID)
     .first();
 }
 
 /** Messages with their extracted entries, newest first, with search/time/cursor filters. */
 export async function queryMessagesWithEntries(
-  env: Env,
+  env: UEnv,
   opts: { limit?: number; before?: number; q?: string; since?: number } = {},
 ): Promise<Array<MessageRow & { entries: EntryRow[] }>> {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
   // Open web drafts (still recording) are not part of the feed yet.
-  const conds: string[] = ["(capture_state IS NULL OR capture_state != 'open')"];
-  const binds: unknown[] = [];
+  const conds: string[] = ["user_id = ?", "(capture_state IS NULL OR capture_state != 'open')"];
+  const binds: unknown[] = [env.USER_ID];
   if (opts.before) {
     conds.push("id < ?");
     binds.push(opts.before);
@@ -421,44 +435,47 @@ function randomToken(): string {
   return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
 }
 
-export async function createLoginToken(env: Env): Promise<string> {
+export async function createLoginToken(env: UEnv, ttl = LOGIN_TOKEN_TTL): Promise<string> {
   const token = randomToken();
-  await env.DB.prepare(`INSERT INTO login_tokens (token, expires_at) VALUES (?, ?)`)
-    .bind(token, now() + LOGIN_TOKEN_TTL)
+  await env.DB.prepare(`INSERT INTO login_tokens (token, expires_at, user_id) VALUES (?, ?, ?)`)
+    .bind(token, now() + ttl, env.USER_ID)
     .run();
   return token;
 }
 
-/** Atomically consume a login token; true only the first time, within TTL. */
-export async function consumeLoginToken(env: Env, token: string): Promise<boolean> {
+/** Atomically consume a login token; its user id only the first time, within TTL. */
+export async function consumeLoginToken(env: Env, token: string): Promise<number | null> {
   const row = await env.DB.prepare(
-    `UPDATE login_tokens SET used = 1 WHERE token = ? AND used = 0 AND expires_at > ? RETURNING token`,
+    `UPDATE login_tokens SET used = 1 WHERE token = ? AND used = 0 AND expires_at > ? RETURNING user_id`,
   )
     .bind(token, now())
-    .first();
-  return row != null;
+    .first<{ user_id: number | null }>();
+  return row?.user_id ?? null;
 }
 
-export async function createSession(env: Env): Promise<string> {
+export async function createSession(env: Env, userId: number): Promise<string> {
   const token = randomToken();
-  await env.DB.prepare(`INSERT INTO sessions (token, created_at, expires_at) VALUES (?, ?, ?)`)
-    .bind(token, now(), now() + SESSION_DAYS * 86400)
+  await env.DB.prepare(`INSERT INTO sessions (token, created_at, expires_at, user_id) VALUES (?, ?, ?, ?)`)
+    .bind(token, now(), now() + SESSION_DAYS * 86400, userId)
     .run();
   return token;
 }
 
-export async function sessionValid(env: Env, token: string): Promise<boolean> {
-  const row = await env.DB.prepare(`SELECT 1 AS ok FROM sessions WHERE token = ? AND expires_at > ?`)
+/** The approved user behind a live session (sliding expiry), or null. */
+export async function sessionUser(env: Env, token: string): Promise<UserRow | null> {
+  const user = await env.DB.prepare(
+    `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.token = ? AND s.expires_at > ? AND u.status = 'approved'`,
+  )
     .bind(token, now())
-    .first();
-  if (row != null) {
-    // Sliding window: every use pushes expiry out another year.
+    .first<UserRow>();
+  if (user) {
+    // Sliding window: every use pushes expiry out again.
     await env.DB.prepare(`UPDATE sessions SET expires_at = ? WHERE token = ?`)
       .bind(now() + SESSION_DAYS * 86400, token)
       .run();
-    return true;
   }
-  return false;
+  return user;
 }
 
 export async function purgeExpiredAuth(env: Env): Promise<void> {
@@ -470,17 +487,17 @@ export async function purgeExpiredAuth(env: Env): Promise<void> {
 
 /** Recent conversation turns (questions + assistant replies) for chat context. */
 export async function recentConversation(
-  env: Env,
+  env: UEnv,
   sinceSeconds: number,
   limit = 10,
 ): Promise<MessageRow[]> {
   const res = await env.DB.prepare(
     `SELECT * FROM messages
-     WHERE role IN ('question', 'assistant') AND created_at >= ?
+     WHERE role IN ('question', 'assistant') AND created_at >= ? AND user_id = ?
        AND raw_text IS NOT NULL AND raw_text != ''
      ORDER BY created_at DESC LIMIT ?`,
   )
-    .bind(now() - sinceSeconds, limit)
+    .bind(now() - sinceSeconds, env.USER_ID, limit)
     .all<MessageRow>();
   return res.results.reverse();
 }

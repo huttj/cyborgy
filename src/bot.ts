@@ -1,5 +1,5 @@
 import { Bot, Context, InlineKeyboard } from "grammy";
-import type { Env, Intent } from "./types";
+import type { Env, Intent, UEnv } from "./types";
 import { classifyIntent } from "./llm";
 import {
   ingestEntry,
@@ -29,7 +29,7 @@ import { extractEntries } from "./llm";
 // longer goes straight to the cron sweep, which has a 15-minute budget.
 const INLINE_VOICE_LIMIT_SEC = 240;
 
-export function createBot(env: Env): Bot {
+export function createBot(env: UEnv): Bot {
   // Webhook replies are disabled because the webhook route ACKs before the
   // handler finishes — an API call piggybacked on that response would be lost.
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN ?? "", {
@@ -236,7 +236,7 @@ function rerouteKeyboard(to: Intent, messageId: number): InlineKeyboard {
  * job when extraction never ran, otherwise just confirm and stop.
  * Returns true when the update was a retry and has been dealt with.
  */
-async function handleRetry(env: Env, ctx: Context): Promise<boolean> {
+async function handleRetry(env: UEnv, ctx: Context): Promise<boolean> {
   const tgId = ctx.message?.message_id;
   if (tgId == null) return false;
   const existing = await getMessageByTelegramId(env, tgId);
@@ -263,7 +263,7 @@ async function handleRetry(env: Env, ctx: Context): Promise<boolean> {
 }
 
 /** The routing layer: replies to the bot are conversation; otherwise classify. */
-async function routeMessage(env: Env, ctx: Context, text: string, source: string): Promise<void> {
+async function routeMessage(env: UEnv, ctx: Context, text: string, source: string): Promise<void> {
   const isReplyToBot = ctx.message?.reply_to_message?.from?.is_bot === true;
   const intent: Intent = isReplyToBot ? "question" : await classifyIntent(env, text);
 
@@ -274,7 +274,7 @@ async function routeMessage(env: Env, ctx: Context, text: string, source: string
   }
 }
 
-async function handleAsEntry(env: Env, ctx: Context, text: string, source: string): Promise<void> {
+async function handleAsEntry(env: UEnv, ctx: Context, text: string, source: string): Promise<void> {
   const { messageId, entries } = await ingestEntry(env, {
     text,
     source,
@@ -286,7 +286,7 @@ async function handleAsEntry(env: Env, ctx: Context, text: string, source: strin
 }
 
 async function handleAsQuestion(
-  env: Env,
+  env: UEnv,
   ctx: Context,
   text: string,
   source: string,

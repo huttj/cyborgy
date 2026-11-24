@@ -266,6 +266,11 @@ export function dashboardPage(key: string | null): Response {
   <label class="setrow"><span class="grow">Check-in pings<br><span class="meta">A few a day, 9am–8pm, skipped when you logged recently</span></span><input type="checkbox" data-n="pings"></label>
   <label class="setrow"><span class="grow">Daily recap<br><span class="meta">9pm</span></span><input type="checkbox" data-n="daily"></label>
   <label class="setrow"><span class="grow">Weekly analysis<br><span class="meta">Sunday 6pm, also on the Review tab</span></span><input type="checkbox" data-n="weekly"></label>
+  <div id="adminSec" hidden>
+    <h2>Accounts</h2>
+    <p class="meta">People ask for access on the sign-in page. Approve sends them a sign-in link (valid 24 hours).</p>
+    <div id="userList"></div>
+  </div>
   <h2>Account</h2>
   <div class="setrow"><span class="grow meta" id="tgState"></span>
     <form method="POST" action="/logout" style="margin:0"><button class="std">Sign out</button></form>
@@ -1235,7 +1240,11 @@ async function currentSub() {
 async function loadSettings() {
   const st = await api('/api/settings');
   document.querySelectorAll('#settings [data-n]').forEach(cb => { cb.checked = !!st.notify[cb.dataset.n]; });
-  document.getElementById('tgState').textContent = st.telegram ? 'The Telegram bot is on too.' : 'Telegram is off. This app is the only client.';
+  document.getElementById('tgState').textContent =
+    (st.email ? 'Signed in as ' + st.email + '. ' : '') + 'Timezone: ' + st.timezone + '.' +
+    (st.telegram ? ' The Telegram bot is on too.' : '');
+  document.getElementById('adminSec').hidden = !st.isAdmin;
+  if (st.isAdmin) loadUsers();
   const state = document.getElementById('pushState');
   const btn = document.getElementById('pushBtn');
   const test = document.getElementById('pushTest');
@@ -1253,6 +1262,32 @@ async function loadSettings() {
   else if (Notification.permission === 'denied') state.textContent = 'Notifications are blocked in the browser settings for this site.';
   else { state.textContent = 'Notifications are off for this device.'; btn.textContent = 'Turn on'; btn.hidden = false; }
 }
+async function loadUsers() {
+  const list = document.getElementById('userList');
+  const { users } = await api('/api/admin/users');
+  const label = { pending: 'Waiting for approval', approved: 'Approved', rejected: 'Rejected' };
+  list.innerHTML = users.map(u =>
+    '<div class="setrow"><span class="grow">' + esc(u.email || '(owner, no email yet)') +
+    '<br><span class="meta">' + label[u.status] + (u.isAdmin ? ' · admin' : '') +
+    ' · since ' + new Date(u.createdAt * 1000).toLocaleDateString() + '</span></span>' +
+    (u.isAdmin ? '' :
+      (u.status !== 'approved' ? '<button class="std" data-uid="' + u.id + '" data-st="approved">Approve</button>' : '') +
+      (u.status !== 'rejected' ? '<button class="std" data-uid="' + u.id + '" data-st="rejected">' + (u.status === 'approved' ? 'Remove access' : 'Reject') + '</button>' : '')) +
+    '</div>').join('') || '<p class="meta">No accounts yet.</p>';
+}
+document.getElementById('userList').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-uid]');
+  if (!b) return;
+  if (b.dataset.st === 'rejected' && !confirm('Remove access for this account?')) return;
+  b.disabled = true;
+  const r = await api('/api/admin/users/' + b.dataset.uid, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status: b.dataset.st }),
+  });
+  if (!r.ok) alert(r.error || 'Failed');
+  else if (b.dataset.st === 'approved' && r.emailed === false) alert('Approved, but the sign-in email could not be sent. They can ask for a link on the sign-in page.');
+  loadUsers();
+});
 document.getElementById('pushBtn').onclick = async () => {
   const sub = await currentSub();
   if (sub) {

@@ -1,4 +1,4 @@
-import type { Env, Delivery, MessageRow, EntryRow, AudioSegmentRow } from "./types";
+import type { Env, Delivery, MessageRow, EntryRow, AudioSegmentRow, UEnv } from "./types";
 import { segmentsByMessageIds } from "./capture";
 import {
   entriesSince,
@@ -28,7 +28,7 @@ const DAY = 86400;
 // ---------------------------------------------------------------------------
 
 /** Paginated, searchable message feed with extracted entries. */
-export async function messagesData(env: Env, params: URLSearchParams): Promise<Response> {
+export async function messagesData(env: UEnv, params: URLSearchParams): Promise<Response> {
   const limit = Number(params.get("limit")) || 20;
   const rows = await queryMessagesWithEntries(env, {
     limit,
@@ -47,8 +47,10 @@ export async function messagesData(env: Env, params: URLSearchParams): Promise<R
   const missing = rows.filter((r) => r.answer_id != null && !byId.has(r.answer_id)).map((r) => r.answer_id!);
   const extra = missing.length
     ? (
-        await env.DB.prepare(`SELECT * FROM messages WHERE id IN (${missing.map(() => "?").join(",")})`)
-          .bind(...missing)
+        await env.DB.prepare(
+          `SELECT * FROM messages WHERE user_id = ? AND id IN (${missing.map(() => "?").join(",")})`,
+        )
+          .bind(env.USER_ID, ...missing)
           .all<MessageRow>()
       ).results
     : [];
@@ -123,7 +125,7 @@ function messageJson(
 }
 
 /** Render one message (plus its answer row, if any) in the feed shape. */
-export async function renderMessage(env: Env, messageId: number, answerId?: number) {
+export async function renderMessage(env: UEnv, messageId: number, answerId?: number) {
   const m = await getMessage(env, messageId);
   if (!m) return null;
   const entries = (
@@ -140,7 +142,7 @@ export async function renderMessage(env: Env, messageId: number, answerId?: numb
 }
 
 /** Charts + categories + latest weekly report, for the Review tab. */
-export async function dashboardData(env: Env, params?: URLSearchParams): Promise<Response> {
+export async function dashboardData(env: UEnv, params?: URLSearchParams): Promise<Response> {
   const resParam = params?.get("res");
   const res: Resolution = resParam === "hour" || resParam === "week" ? resParam : "day";
   const days = Math.min(Math.max(Number(params?.get("days")) || 28, 1), 365);
@@ -168,18 +170,18 @@ export async function dashboardData(env: Env, params?: URLSearchParams): Promise
 }
 
 /** Long-term memory document (Memory tab). */
-export async function memoryData(env: Env): Promise<Response> {
+export async function memoryData(env: UEnv): Promise<Response> {
   return Response.json({ memory: await getMemory(env) });
 }
 
-export async function saveMemory(env: Env, request: Request): Promise<Response> {
+export async function saveMemory(env: UEnv, request: Request): Promise<Response> {
   const body = (await request.json().catch(() => null)) as { memory?: string } | null;
   await setMemory(env, String(body?.memory ?? ""));
   return Response.json({ ok: true });
 }
 
 /** Browser Q&A — same brain as asking the bot in Telegram. */
-export async function askHandler(env: Env, request: Request): Promise<Response> {
+export async function askHandler(env: UEnv, request: Request): Promise<Response> {
   const body = (await request.json().catch(() => null)) as { question?: string } | null;
   const question = body?.question?.trim();
   if (!question) return Response.json({ ok: false, error: "empty question" }, { status: 400 });
@@ -196,7 +198,7 @@ export async function askHandler(env: Env, request: Request): Promise<Response> 
  * backfill word timestamps or pick up transcription improvements.
  */
 export async function reprocessMessage(
-  env: Env,
+  env: UEnv,
   id: number,
   retranscribe = false,
   guidance?: string,
@@ -261,8 +263,10 @@ export async function reprocessMessage(
  * Deleting a question also deletes its paired answer — otherwise the
  * assistant row survives as a confusing orphan card in the feed.
  */
-export async function deleteMessage(env: Env, id: number): Promise<Response> {
+export async function deleteMessage(env: UEnv, id: number): Promise<Response> {
   const msg = await getMessage(env, id);
+  // getMessage is scoped to this user: someone else's id is "not found".
+  if (!msg) return Response.json({ ok: false, error: "message not found" }, { status: 404 });
   await deleteEntriesForMessage(env, id);
   await env.DB.prepare(`DELETE FROM audio_segments WHERE message_id = ?`).bind(id).run();
   await env.DB.prepare(`DELETE FROM messages WHERE id = ?`).bind(id).run();
@@ -270,9 +274,9 @@ export async function deleteMessage(env: Env, id: number): Promise<Response> {
     await env.DB.prepare(`DELETE FROM messages WHERE id = ?`).bind(msg.answer_id).run();
   } else if (msg?.role === "question") {
     const next = await env.DB.prepare(
-      `SELECT id, role FROM messages WHERE id > ? ORDER BY id LIMIT 1`,
+      `SELECT id, role FROM messages WHERE id > ? AND user_id = ? ORDER BY id LIMIT 1`,
     )
-      .bind(id)
+      .bind(id, env.USER_ID)
       .first<{ id: number; role: string }>();
     if (next?.role === "assistant") {
       await env.DB.prepare(`DELETE FROM messages WHERE id = ?`).bind(next.id).run();
@@ -282,7 +286,7 @@ export async function deleteMessage(env: Env, id: number): Promise<Response> {
 }
 
 /** Delete a single extracted entry, leaving the raw message intact. */
-export async function deleteEntryHandler(env: Env, id: number): Promise<Response> {
+export async function deleteEntryHandler(env: UEnv, id: number): Promise<Response> {
   await deleteEntry(env, id);
   return Response.json({ ok: true });
 }

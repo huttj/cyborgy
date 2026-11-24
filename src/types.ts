@@ -17,6 +17,37 @@ export interface Env {
   VAPID_PUBLIC_KEY?: string;
   TIMEZONE: string;
   PUBLIC_URL: string;
+  /** Comma-separated admin emails (a secret, so they stay out of the public repo). */
+  ADMIN_EMAILS?: string;
+  /** Cloudflare Email Service binding for magic links and approval mail. */
+  EMAIL?: {
+    send(message: {
+      to: string;
+      from: string;
+      subject: string;
+      text?: string;
+      html?: string;
+    }): Promise<unknown>;
+  };
+}
+
+/**
+ * The Env for one user's request or job. Every per-user query reads USER_ID,
+ * and TIMEZONE is the user's own zone, so code that takes a UEnv is scoped to
+ * that user's journal.
+ */
+export interface UEnv extends Env {
+  USER_ID: number;
+}
+
+export interface UserRow {
+  id: number;
+  email: string | null;
+  status: "pending" | "approved" | "rejected";
+  is_admin: number;
+  timezone: string | null;
+  created_at: number;
+  approved_at: number | null;
 }
 
 export type Intent = "entry" | "question";
@@ -81,6 +112,7 @@ export interface MessageRow {
   typed_text: string | null;
   capture_mode: string | null;
   answer_id: number | null;
+  user_id: number | null;
 }
 
 export interface AudioSegmentRow {

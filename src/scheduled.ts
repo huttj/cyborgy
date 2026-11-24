@@ -1,8 +1,9 @@
-import type { Env, EntryRow } from "./types";
+import type { Env, EntryRow, UEnv } from "./types";
 import { writeDailyRecap, writeWeeklyAnalysis } from "./llm";
 import { completeVoiceStub } from "./pipeline";
 import { tg, sendToUser, sendPhotoToUser, stripMarkdown, telegramEnabled } from "./telegram-api";
-import { pushToAll } from "./push";
+import { pushToUser } from "./push";
+import { approvedUsers, forUser, getUser, OWNER_ID } from "./users";
 import { sweepWebCaptures } from "./capture";
 import {
   entriesSince,
@@ -23,11 +24,12 @@ import {
  * Record an outbound message in the feed, push it to every subscribed
  * browser, and send it to Telegram when the bot is configured.
  */
-async function broadcast(env: Env, text: string, title = "cyborgy"): Promise<void> {
+async function broadcast(env: UEnv, text: string, title = "cyborgy"): Promise<void> {
   await insertMessage(env, { source: "bot", role: "broadcast", rawText: text });
   // ?compose=1 opens the composer, so a check-in can be answered at once.
-  await pushToAll(env, { title, body: stripMarkdown(text), url: "/?compose=1#stream" });
-  await sendToUser(env, text);
+  await pushToUser(env, { title, body: stripMarkdown(text), url: "/?compose=1#stream" });
+  // The Telegram bot belongs to the owner.
+  if (env.USER_ID === OWNER_ID) await sendToUser(env, text);
 }
 
 /** Which scheduled messages the user turned on (Settings tab). All off by default. */
@@ -37,7 +39,7 @@ export interface NotifySettings {
   weekly: boolean;
 }
 export const NOTIFY_DEFAULTS: NotifySettings = { pings: false, daily: false, weekly: false };
-export const getNotifySettings = (env: Env) => getState<NotifySettings>(env, "notify", NOTIFY_DEFAULTS);
+export const getNotifySettings = (env: UEnv) => getState<NotifySettings>(env, "notify", NOTIFY_DEFAULTS);
 import type { Delivery } from "./types";
 
 const DAY = 86400;
@@ -62,7 +64,7 @@ const PING_PROMPTS = [
   "Who have you talked to today? How'd it feel?",
 ];
 
-export function localParts(env: Env, date = new Date()): { hour: number; weekday: number } {
+export function localParts(env: UEnv, date = new Date()): { hour: number; weekday: number } {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: env.TIMEZONE,
     hour: "numeric",
@@ -76,7 +78,7 @@ export function localParts(env: Env, date = new Date()): { hour: number; weekday
 }
 
 /** Unix time of local midnight today in env.TIMEZONE (approximate via offset probe). */
-function localMidnight(env: Env): number {
+function localMidnight(env: UEnv): number {
   const nowDate = new Date();
   const local = new Date(nowDate.toLocaleString("en-US", { timeZone: env.TIMEZONE }));
   const offsetMs = nowDate.getTime() - local.getTime();
@@ -96,7 +98,7 @@ const SWEEP_MAX_AGE = 7 * DAY;
  * scheduled handler's 15-minute budget — long notes that can't fit the
  * webhook's ~30s window land here by design.
  */
-async function sweepStuckVoice(env: Env): Promise<void> {
+async function sweepStuckVoice(env: UEnv): Promise<void> {
   const t = now();
   const stuck = await stuckVoiceMessages(env, t - SWEEP_MIN_AGE, t - SWEEP_MAX_AGE);
   for (const msg of stuck) {
@@ -117,17 +119,17 @@ async function sweepStuckVoice(env: Env): Promise<void> {
   }
 }
 
-/** Finish browser captures whose Send request died, and tell the user. */
+/** Finish browser captures whose Send request died, and tell each user. */
 async function sweepWeb(env: Env): Promise<void> {
   const done = await sweepWebCaptures(env);
-  const finished = done.filter((d) => d.intent !== "empty");
-  if (finished.length) {
-    await pushToAll(env, {
+  const perUser = new Map<number, number>();
+  for (const d of done) if (d.intent !== "empty") perUser.set(d.userId, (perUser.get(d.userId) ?? 0) + 1);
+  for (const [userId, n] of perUser) {
+    const user = await getUser(env, userId);
+    if (!user) continue;
+    await pushToUser(forUser(env, user), {
       title: "cyborgy",
-      body:
-        finished.length === 1
-          ? "Your recording is processed."
-          : `${finished.length} recordings are processed.`,
+      body: n === 1 ? "Your recording is processed." : `${n} recordings are processed.`,
       url: "/#stream",
     });
   }
@@ -136,7 +138,10 @@ async function sweepWeb(env: Env): Promise<void> {
 export async function runScheduled(env: Env): Promise<void> {
   // Every tick (10 min): heal voice notes that died mid-pipeline.
   if (telegramEnabled(env)) {
-    await sweepStuckVoice(env).catch((err) => console.error("voice sweep:", err));
+    const owner = await getUser(env, OWNER_ID);
+    if (owner) {
+      await sweepStuckVoice(forUser(env, owner)).catch((err) => console.error("voice sweep:", err));
+    }
   }
   await sweepWeb(env).catch((err) => console.error("web capture sweep:", err));
 
@@ -144,6 +149,15 @@ export async function runScheduled(env: Env): Promise<void> {
   if (new Date().getUTCMinutes() >= 5) return;
 
   await purgeExpiredAuth(env).catch(() => {});
+  // Each approved user gets their own schedule, in their own timezone.
+  for (const user of await approvedUsers(env)) {
+    await runUserHour(forUser(env, user)).catch((err) =>
+      console.error(`scheduled: user ${user.id} failed`, err),
+    );
+  }
+}
+
+async function runUserHour(env: UEnv): Promise<void> {
   const notify = await getNotifySettings(env);
   const { hour, weekday } = localParts(env);
 
@@ -160,7 +174,7 @@ export async function runScheduled(env: Env): Promise<void> {
   }
 }
 
-async function maybePing(env: Env): Promise<void> {
+async function maybePing(env: UEnv): Promise<void> {
   const t = now();
   const midnight = localMidnight(env);
 
@@ -179,7 +193,7 @@ async function maybePing(env: Env): Promise<void> {
   await logPing(env, "ping");
 }
 
-async function runDailyRecap(env: Env): Promise<void> {
+async function runDailyRecap(env: UEnv): Promise<void> {
   const midnight = localMidnight(env);
   // Guard against double-fire (cron retries, etc.)
   if (await lastPingTimeAfter(env, "daily_recap", midnight)) return;
@@ -196,7 +210,7 @@ async function runDailyRecap(env: Env): Promise<void> {
   await logPing(env, "daily_recap");
 }
 
-async function runWeeklyRecap(env: Env): Promise<void> {
+async function runWeeklyRecap(env: UEnv): Promise<void> {
   const t = now();
   if (await lastPingTimeAfter(env, "weekly_recap", t - 6 * DAY)) return;
 
@@ -219,14 +233,14 @@ async function runWeeklyRecap(env: Env): Promise<void> {
   // No key in the link — the dashboard uses /login session cookies now.
   const dashboardUrl = env.PUBLIC_URL;
   if (chartUrl) {
-    await sendPhotoToUser(env, chartUrl, "📊 Your week in mood & energy");
+    if (env.USER_ID === OWNER_ID) await sendPhotoToUser(env, chartUrl, "📊 Your week in mood & energy");
   }
   await broadcast(env, `${report}\n\n📈 Full dashboard: ${dashboardUrl}`, "Your week");
   await logPing(env, "weekly_recap");
 }
 
 /** Compact per-day delivery digest for the weekly analysis prompt. */
-async function summarizeDelivery(env: Env, since: number): Promise<string | undefined> {
+async function summarizeDelivery(env: UEnv, since: number): Promise<string | undefined> {
   const rows = await deliverySince(env, since);
   if (rows.length === 0) return undefined;
 
@@ -270,7 +284,7 @@ async function summarizeDelivery(env: Env, since: number): Promise<string | unde
   return lines.length ? lines.join("\n") : undefined;
 }
 
-async function lastPingTimeAfter(env: Env, kind: string, since: number): Promise<boolean> {
+async function lastPingTimeAfter(env: UEnv, kind: string, since: number): Promise<boolean> {
   const last = await lastPingTime(env, kind);
   return last != null && last >= since;
 }
@@ -289,7 +303,7 @@ export interface MoodEnergySeries {
 }
 
 /** Chronological {sortKey, label} for an entry at the chosen time resolution. */
-function bucketFor(env: Env, ts: number, res: Resolution): { key: string; label: string } {
+function bucketFor(env: UEnv, ts: number, res: Resolution): { key: string; label: string } {
   const tz = env.TIMEZONE;
   const d = new Date(ts * 1000);
   if (res === "hour") {
@@ -324,7 +338,7 @@ function bucketFor(env: Env, ts: number, res: Resolution): { key: string; label:
 }
 
 export function moodEnergySeries(
-  env: Env,
+  env: UEnv,
   entries: EntryRow[],
   res: Resolution = "day",
 ): MoodEnergySeries {
@@ -359,7 +373,7 @@ export function moodEnergySeries(
 }
 
 /** Back-compat alias for the weekly-recap chart (day resolution). */
-export function dailyMoodEnergySeries(env: Env, entries: EntryRow[]): MoodEnergySeries {
+export function dailyMoodEnergySeries(env: UEnv, entries: EntryRow[]): MoodEnergySeries {
   return moodEnergySeries(env, entries, "day");
 }
 

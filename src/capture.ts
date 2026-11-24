@@ -13,7 +13,7 @@
 // segments in seq order, adds any typed text and photos, then routes like the
 // bot does. A message stays capture_state='sent' until the pipeline finishes,
 // so the cron sweep can finish a send whose request died.
-import type { AudioSegmentRow, Env, Intent, MessageRow, TranscriptWord } from "./types";
+import type { AudioSegmentRow, Env, Intent, MessageRow, TranscriptWord, UEnv } from "./types";
 import { classifyIntent, extractEntries } from "./llm";
 import { answerWithContext, loadImages, transcribe } from "./pipeline";
 import {
@@ -25,6 +25,7 @@ import {
   setMessageDelivery,
   now,
 } from "./db";
+import { forUser, getUser } from "./users";
 
 const MAX_SEGMENT_BYTES = 25 * 1024 * 1024;
 const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
@@ -40,12 +41,12 @@ function json(body: unknown, status = 200): Response {
   return Response.json(body, { status });
 }
 
-async function getDraft(env: Env, id: number): Promise<MessageRow | null> {
+async function getDraft(env: UEnv, id: number): Promise<MessageRow | null> {
   const msg = await getMessage(env, id);
   return msg && msg.capture_state != null ? msg : null;
 }
 
-export async function segmentsFor(env: Env, messageId: number): Promise<AudioSegmentRow[]> {
+export async function segmentsFor(env: UEnv, messageId: number): Promise<AudioSegmentRow[]> {
   const res = await env.DB.prepare(`SELECT * FROM audio_segments WHERE message_id = ? ORDER BY seq`)
     .bind(messageId)
     .all<AudioSegmentRow>();
@@ -54,7 +55,7 @@ export async function segmentsFor(env: Env, messageId: number): Promise<AudioSeg
 
 /** Batched segment lookup for the feed: message id → segments in order. */
 export async function segmentsByMessageIds(
-  env: Env,
+  env: UEnv,
   ids: number[],
 ): Promise<Map<number, AudioSegmentRow[]>> {
   const map = new Map<number, AudioSegmentRow[]>();
@@ -75,7 +76,7 @@ export async function segmentsByMessageIds(
 const PHANTOM = new Set(["you", "thank you", "thanks for watching", "bye", "thank you for watching"]);
 
 /** Transcribe one segment and store the result. Silence stores ''. */
-async function transcribeSegment(env: Env, seg: AudioSegmentRow): Promise<void> {
+async function transcribeSegment(env: UEnv, seg: AudioSegmentRow): Promise<void> {
   const object = await env.MEDIA.get(seg.r2_key);
   if (!object) throw new Error(`segment audio missing in R2: ${seg.r2_key}`);
   let text = "";
@@ -119,6 +120,7 @@ function stitch(segments: AudioSegmentRow[]): { text: string; words: TranscriptW
 export interface CaptureResult {
   intent: Intent | "empty";
   messageId: number;
+  userId: number;
   answerId?: number;
 }
 
@@ -127,7 +129,7 @@ export interface CaptureResult {
  * extract or answer, and mark the row 'done'. Idempotent up to the final
  * UPDATE: entries are wiped before insert, and only a 'sent' row is finished.
  */
-export async function finishCapture(env: Env, msg: MessageRow): Promise<CaptureResult> {
+export async function finishCapture(env: UEnv, msg: MessageRow): Promise<CaptureResult> {
   const segments = await segmentsFor(env, msg.id);
   for (const seg of segments) if (seg.transcript == null) await transcribeSegment(env, seg);
   const voice = stitch(segments);
@@ -138,7 +140,7 @@ export async function finishCapture(env: Env, msg: MessageRow): Promise<CaptureR
   if (!text && photoKeys.length === 0) {
     // Nothing usable (e.g. a recording of silence): drop the row.
     await env.DB.prepare(`DELETE FROM messages WHERE id = ?`).bind(msg.id).run();
-    return { intent: "empty", messageId: msg.id };
+    return { intent: "empty", messageId: msg.id, userId: env.USER_ID };
   }
 
   const source = segments.length ? "web_voice" : photoKeys.length ? "web_photo" : "web_text";
@@ -187,7 +189,7 @@ export async function finishCapture(env: Env, msg: MessageRow): Promise<CaptureR
       msg.id,
     )
     .run();
-  return { intent, messageId: msg.id, answerId };
+  return { intent, messageId: msg.id, userId: env.USER_ID, answerId };
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +198,7 @@ export async function finishCapture(env: Env, msg: MessageRow): Promise<CaptureR
 
 export async function handleCapture(
   request: Request,
-  env: Env,
+  env: UEnv,
   ctx: ExecutionContext,
   url: URL,
   /** Renders a finished message in the feed's JSON shape. */
@@ -207,10 +209,10 @@ export async function handleCapture(
 
   if (path === "/api/capture" && method === "POST") {
     const row = await env.DB.prepare(
-      `INSERT INTO messages (source, role, raw_text, created_at, capture_state)
-       VALUES ('web_voice', 'entry', NULL, ?, 'open') RETURNING id`,
+      `INSERT INTO messages (source, role, raw_text, created_at, capture_state, user_id)
+       VALUES ('web_voice', 'entry', NULL, ?, 'open', ?) RETURNING id`,
     )
-      .bind(now())
+      .bind(now(), env.USER_ID)
       .first<{ id: number }>();
     return json({ id: row!.id });
   }
@@ -363,7 +365,9 @@ export async function sweepWebCaptures(env: Env): Promise<CaptureResult[]> {
     .all<MessageRow>();
   for (const msg of stuck.results) {
     try {
-      done.push(await finishCapture(env, msg));
+      const user = msg.user_id != null ? await getUser(env, msg.user_id) : null;
+      if (!user || user.status !== "approved") continue;
+      done.push(await finishCapture(forUser(env, user), msg));
       console.log(`capture sweep: finished message ${msg.id}`);
     } catch (err) {
       console.error(`capture sweep: message ${msg.id} failed`, err);

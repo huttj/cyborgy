@@ -1,4 +1,4 @@
-import type { Env, ExtractedEntry, Delivery, Image, Intent, TranscriptWord } from "./types";
+import type { Env, ExtractedEntry, Delivery, Image, Intent, TranscriptWord, UEnv } from "./types";
 import { extractEntries, classifyIntent, answerQuestion } from "./llm";
 import {
   insertMessage,
@@ -23,7 +23,7 @@ const ANSWER_CONTEXT_DAYS = 14;
 const PHOTO_GROUP_WINDOW = 30; // seconds
 
 /** Load image keys from R2 as base64 blocks for extraction. */
-export async function loadImages(env: Env, r2Keys: string[]): Promise<Image[]> {
+export async function loadImages(env: UEnv, r2Keys: string[]): Promise<Image[]> {
   const out: Image[] = [];
   for (const key of r2Keys) {
     const obj = await env.MEDIA.get(key);
@@ -39,7 +39,7 @@ export interface Transcription {
 }
 
 /** Transcribe audio with Workers AI Whisper (free daily allocation). */
-export async function transcribe(env: Env, audio: ArrayBuffer): Promise<Transcription> {
+export async function transcribe(env: UEnv, audio: ArrayBuffer): Promise<Transcription> {
   const result = (await env.AI.run("@cf/openai/whisper-large-v3-turbo", {
     audio: arrayBufferToBase64(audio),
   })) as unknown as Record<string, unknown>;
@@ -81,7 +81,7 @@ function harvestWords(result: Record<string, unknown>): TranscriptWord[] | null 
  * partial death redoes the whole job; entries are wiped before re-insert.
  */
 export async function completeVoiceStub(
-  env: Env,
+  env: UEnv,
   msg: { id: number; r2_key: string | null; created_at: number },
   opts: { audio?: ArrayBuffer; durationSec?: number; forceQuestion?: boolean } = {},
 ): Promise<{ intent: Intent; replyText: string }> {
@@ -112,7 +112,7 @@ export async function completeVoiceStub(
   return { intent, replyText: confirmationText(entries, env.TIMEZONE) };
 }
 
-export async function answerWithContext(env: Env, question: string): Promise<string> {
+export async function answerWithContext(env: UEnv, question: string): Promise<string> {
   const [entries, conversation] = await Promise.all([
     entriesSince(env, now() - ANSWER_CONTEXT_DAYS * DAY),
     recentConversation(env, DAY),
@@ -132,7 +132,7 @@ export interface IngestResult {
  * message-level delivery metadata (how it was said: tags/note + words/sec).
  */
 export async function ingestEntry(
-  env: Env,
+  env: UEnv,
   input: {
     text: string | null;
     source: string;
@@ -171,7 +171,7 @@ export interface PhotoResult extends IngestResult {
  * to arrive yields the complete result.
  */
 export async function ingestPhoto(
-  env: Env,
+  env: UEnv,
   input: {
     telegramMessageId: number;
     r2Key: string;
@@ -189,10 +189,10 @@ export async function ingestPhoto(
     // stray share-sheet photo never gets absorbed into a real Telegram album.
     const recent = await env.DB.prepare(
       `SELECT media_group_id FROM messages
-       WHERE source = 'telegram_photo' AND media_group_id LIKE 'auto-%' AND created_at >= ?
+       WHERE source = 'telegram_photo' AND media_group_id LIKE 'auto-%' AND created_at >= ? AND user_id = ?
        ORDER BY id DESC LIMIT 1`,
     )
-      .bind(now() - PHOTO_GROUP_WINDOW)
+      .bind(now() - PHOTO_GROUP_WINDOW, env.USER_ID)
       .first<{ media_group_id: string }>();
     groupId = recent?.media_group_id ?? `auto-${input.telegramMessageId}`;
   }

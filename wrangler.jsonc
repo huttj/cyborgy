@@ -9,6 +9,10 @@
   // Workers AI — used for Whisper transcription (free daily allocation)
   "ai": { "binding": "AI" },
 
+  // Cloudflare Email Service: magic links and access-request mail, sent from
+  // cyborgy.app (Email Sending must be on for the zone).
+  "send_email": [{ "name": "EMAIL", "remote": true }],
+
   // Static files for the browser app (PWA manifest, service worker, icons).
   // A request that matches no file goes on to the Worker.
   "assets": { "directory": "./public" },
@@ -54,6 +58,7 @@
   //   SHORTCUT_TOKEN          — bearer token for the watch Shortcut POST
   //   VAPID_PUBLIC_KEY        — web push (optional): `npm run vapid` prints both
   //   VAPID_PRIVATE_KEY       —   keys; the private one is a P-256 JWK
+  //   ADMIN_EMAILS            — comma-separated admin emails; they approve signups
   // Optional Telegram bot (all three, or none):
   //   TELEGRAM_BOT_TOKEN      — from @BotFather
   //   TELEGRAM_WEBHOOK_SECRET — any random string; also passed to setWebhook

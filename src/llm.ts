@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Env, ExtractedEntry, ExtractionResult, Image, Intent, EntryRow, MessageRow } from "./types";
+import type { Env, ExtractedEntry, ExtractionResult, Image, Intent, EntryRow, MessageRow, UEnv } from "./types";
 import { getMemory, appendMemory } from "./db";
 
 const EXTRACT_MODEL = "claude-haiku-4-5"; // cheap structured extraction per entry
@@ -7,7 +7,7 @@ const ROUTE_MODEL = "claude-haiku-4-5"; //  entry-vs-question classification
 const CHAT_MODEL = "claude-opus-4-8"; //    Q&A and recaps
 const ANALYSIS_MODEL = "claude-opus-4-8"; // weekly correlation report
 
-function client(env: Env): Anthropic {
+function client(env: UEnv): Anthropic {
   return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 }
 
@@ -65,7 +65,7 @@ const INTENT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-export async function classifyIntent(env: Env, text: string): Promise<Intent> {
+export async function classifyIntent(env: UEnv, text: string): Promise<Intent> {
   const response = await client(env).messages.create({
     model: ROUTE_MODEL,
     max_tokens: 256,
@@ -156,7 +156,7 @@ Separately, report "delivery" — HOW the message reads, not what it says. This 
 - For photos with no text, return empty tags and null note.`;
 
 export async function extractEntries(
-  env: Env,
+  env: UEnv,
   text: string | null,
   images?: Image[],
   /** Reference "now" for resolving time cues — pass the message's capture time
@@ -250,7 +250,7 @@ const REMEMBER_TOOL: Anthropic.Tool = {
 };
 
 export async function answerQuestion(
-  env: Env,
+  env: UEnv,
   question: string,
   context: { entries: EntryRow[]; conversation: MessageRow[] },
 ): Promise<string> {
@@ -314,7 +314,7 @@ export async function answerQuestion(
 // Recaps
 // ---------------------------------------------------------------------------
 
-export async function writeDailyRecap(env: Env, todayEntries: EntryRow[]): Promise<string> {
+export async function writeDailyRecap(env: UEnv, todayEntries: EntryRow[]): Promise<string> {
   const journal = todayEntries.map((e) => formatEntryLine(e, env.TIMEZONE)).join("\n");
   const memory = await getMemory(env);
   const response = await client(env).messages.create({
@@ -333,7 +333,7 @@ export async function writeDailyRecap(env: Env, todayEntries: EntryRow[]): Promi
 }
 
 export async function writeWeeklyAnalysis(
-  env: Env,
+  env: UEnv,
   thisWeek: EntryRow[],
   lastWeek: EntryRow[],
   deliverySummary?: string,

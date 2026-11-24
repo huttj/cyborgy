@@ -1,6 +1,6 @@
 # cyborgy 🤖
 
-Personal happiness/life tracker on Cloudflare Workers, used in the browser (installable as a PWA). Record voice notes, type, or add photos about your day; an LLM extracts structured entries (food, exercise, activities, social, moods); you get optional check-in pings, a daily recap, and a weekly correlation analysis as web push notifications, plus a live dashboard. A Telegram bot is an optional second client.
+Personal happiness/life tracker on Cloudflare Workers, used in the browser (installable as a PWA). Record voice notes, type, or add photos about your day; an LLM extracts structured entries (food, exercise, activities, social, moods); you get optional check-in pings, a daily recap, and a weekly correlation analysis as web push notifications, plus a live dashboard. Several people can use it, each with a separate journal: anyone can ask for access with their email, an admin approves, and approved users sign in with an emailed magic link. A Telegram bot is an optional second client for the owner.
 
 **Stack:** Cloudflare Workers (+ static assets in `public/`) + D1 (SQLite) + R2 (media archive) + Workers AI (Whisper transcription) + Anthropic API (extraction: Haiku 4.5, chat/analysis: Opus 4.8) + Web Push (VAPID on WebCrypto) + grammY (optional Telegram) + QuickChart. Infrastructure cost: $0 on free tiers; only real cost is Anthropic usage (a few $/month).
 
@@ -29,6 +29,13 @@ Voice/text/photo ──▶ Telegram ──▶ Worker /webhook ─▶ routing lay
   GET /?key=… ──▶ dashboard (mood/energy chart, categories, latest report, recent entries)
 ```
 
+## Accounts
+
+- **Sign-in:** enter your email on `/login`. An approved user gets a one-time magic link (10 minutes). A new address becomes an access request: the admins get an email and a push, and approve or reject it in **Settings → Accounts**. Approval emails the person a 24-hour sign-in link. Only approved users get mail, so a mistyped signup never bounces.
+- **Admins** are the emails in the `ADMIN_EMAILS` secret (kept out of this public repo). The first admin to sign in becomes the **owner** (user 1): the data from before accounts existed, the Telegram bot, the Shortcut token and the `DASHBOARD_KEY` fallback all belong to the owner.
+- **Separation:** every per-user table has `user_id`; request handlers get a `UEnv` (the Env plus `USER_ID`, with `TIMEZONE` set to the user's browser timezone), and every per-user query reads it. Media is served only when the R2 key belongs to one of the user's messages.
+- All users' AI calls use the owner's `ANTHROPIC_API_KEY`.
+
 ## Setup (one-time)
 
 ### 1. Cloudflare resources
@@ -44,16 +51,17 @@ npm run db:migrate                    # apply migrations to remote D1
 ### 2. Secrets
 ```bash
 npx wrangler secret put ANTHROPIC_API_KEY        # console.anthropic.com
-npx wrangler secret put DASHBOARD_KEY            # browser sign-in key: openssl rand -hex 16
+npx wrangler secret put DASHBOARD_KEY            # owner fallback sign-in key: openssl rand -hex 16
+npx wrangler secret put ADMIN_EMAILS             # comma-separated admin emails
 npx wrangler secret put SHORTCUT_TOKEN           # openssl rand -hex 16
 npm run vapid                                    # prints a web push key pair, then:
 npx wrangler secret put VAPID_PUBLIC_KEY
 npx wrangler secret put VAPID_PRIVATE_KEY        # the JSON (JWK) line
 ```
-Also set `TIMEZONE` and `PUBLIC_URL` in `wrangler.jsonc`.
+Also set `TIMEZONE` (default for new users) and `PUBLIC_URL` in `wrangler.jsonc`, and turn on Email Sending for the domain: `npx wrangler email sending enable <domain>`. Mail goes out from `hello@<domain>` through the `EMAIL` binding.
 
 ### 3. Deploy and sign in
-`npm run deploy`, open the site, and sign in with the `DASHBOARD_KEY` (the session cookie lasts 30 days and slides with use). On iPhone, tap Share → **Add to Home Screen** and open it from there; then **Settings → Turn on** notifications. Turn on check-ins / recaps in Settings.
+`npm run deploy`, open the site, and sign in with an admin email (or the owner key). The session cookie lasts 30 days and slides with use. On iPhone, tap Share → **Add to Home Screen** and open it from there; then **Settings → Turn on** notifications. Turn on check-ins / recaps in Settings.
 
 ### 4. Optional: Telegram bot
 1. Message [@BotFather](https://t.me/botfather) → `/newbot` → save the token; get your numeric id from [@userinfobot](https://t.me/userinfobot).
