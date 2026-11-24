@@ -5,7 +5,7 @@
 // SVG icons (lucide-style) throughout; no emoji in chrome.
 // ---------------------------------------------------------------------------
 
-export function dashboardPage(key: string | null): Response {
+export function dashboardPage(): Response {
   const build = new Date().toISOString().slice(0, 16).replace("T", " ");
   const html = `<!doctype html>
 <html lang="en">
@@ -300,7 +300,6 @@ export function dashboardPage(key: string | null): Response {
 <footer>cyborgy · build ${build} UTC</footer>
 
 <script>
-const KEY = ${JSON.stringify(key ?? "").replace(/</g, "\\u003c")}; // empty when cookie-authed — requests then rely on the session cookie
 const BUILD = ${JSON.stringify(build)};
 console.log('cyborgy build', BUILD);
 
@@ -345,8 +344,7 @@ const moodIcon = v => v <= 4 ? 'frown' : v <= 6 ? 'meh' : 'smile';
 const esc = s => s == null ? '' : String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const stripMd = s => (s || '').replace(/\\[(.*?)\\]\\(.*?\\)/g, '$1').replace(/[*_#>~]/g, '');
 const md = s => DOMPurify.sanitize(marked.parse(s || ''));
-const withKey = p => KEY ? p + (p.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY) : p;
-const api = (path, opts) => fetch(withKey(path), opts).then(r => {
+const api = (path, opts) => fetch((path), opts).then(r => {
   if (r.status === 401) { location.href = '/login'; throw new Error('signed out'); }
   return r.json();
 });
@@ -431,8 +429,8 @@ function renderMessage(m) {
   const src = m.source.replace(/^(telegram|web)_/, '');
   // Audio tracks: browser recordings are ordered segments; Telegram voice is one file.
   const tracks = (m.audio && m.audio.length)
-    ? m.audio.map(a => ({ src: withKey('/media/' + encodeURIComponent(a.key)), dur: a.duration }))
-    : (m.r2Key && !isPhoto ? [{ src: withKey('/media/' + encodeURIComponent(m.r2Key)), dur: null }] : []);
+    ? m.audio.map(a => ({ src: ('/media/' + encodeURIComponent(a.key)), dur: a.duration }))
+    : (m.r2Key && !isPhoto ? [{ src: ('/media/' + encodeURIComponent(m.r2Key)), dur: null }] : []);
 
   // LEFT column: one message-type icon (question/voice/text/photo/assistant/…)
   const typeName = m.role === 'question' ? 'help' : (m.role === 'assistant' || m.role === 'broadcast') ? 'bot' : (SRC_IC[src] || 'chat');
@@ -459,7 +457,7 @@ function renderMessage(m) {
   if (m.role === 'question') previewText = '<span class="qtext">' + previewText + '</span>';
   const imgs = (m.media && m.media.length) ? m.media : (isPhoto ? [m.r2Key] : []);
   if (imgs.length) {
-    previewText += '<span class="thumbwrap"><img class="thumb" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(imgs[0])) + '">' +
+    previewText += '<span class="thumbwrap"><img class="thumb" loading="lazy" src="' + ('/media/' + encodeURIComponent(imgs[0])) + '">' +
       (imgs.length > 1 ? '<span class="thumbn">+' + (imgs.length - 1) + '</span>' : '') + '</span>';
   }
   // One digest line: category icons left, entry count pushed to the far right.
@@ -483,7 +481,7 @@ function renderMessage(m) {
         : (isPhoto ? '' : '<em>(no text)</em>'));
   if (m.role === 'question') text = '<div class="qfull">' + text + '</div>';
   const media = (imgs.length
-      ? '<div class="gallery">' + imgs.map(k => '<img class="ph" loading="lazy" src="' + withKey('/media/' + encodeURIComponent(k)) + '">').join('') + '</div>'
+      ? '<div class="gallery">' + imgs.map(k => '<img class="ph" loading="lazy" src="' + ('/media/' + encodeURIComponent(k)) + '">').join('') + '</div>'
       : '') +
     (tracks.length
       ? '<div class="player"><button class="pbtn">' + icon('play') + '</button><div class="ptrack"><div class="pfill"></div></div><span class="ptime">·</span><button class="prate" title="Playback speed">1×</button>' +
@@ -995,7 +993,7 @@ function startSegment() {
       d.segments.push(seg);
       d.segments.sort((a, b) => a.seq - b.seq);
       const up = draftId(d)
-        .then(id => fetch(withKey('/api/capture/' + id + '/segments?seq=' + seq + '&duration=' + duration.toFixed(2)),
+        .then(id => fetch(('/api/capture/' + id + '/segments?seq=' + seq + '&duration=' + duration.toFixed(2)),
           { method: 'POST', headers: { 'content-type': blob.type }, body: blob }))
         .then(r => r.json())
         .then(r => { if (!r.ok) throw new Error(r.error || 'upload failed'); })
@@ -1081,7 +1079,7 @@ photoIn.addEventListener('change', async () => {
       d.photos.push(url);
       renderDock();
       const up = draftId(d)
-        .then(id => fetch(withKey('/api/capture/' + id + '/photos'), { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: blob }))
+        .then(id => fetch(('/api/capture/' + id + '/photos'), { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: blob }))
         .then(r => r.json())
         .then(r => { if (!r.ok) throw new Error(r.error || 'upload failed'); })
         .catch(err => { if (d === draft) setStatus('A photo did not upload: ' + err.message, true); })
@@ -1200,13 +1198,13 @@ async function restoreDraft() {
   if (saved.text) dockText.value = saved.text;
   if (saved.id) {
     try {
-      const r = await fetch(withKey('/api/capture/' + saved.id)).then(x => x.ok ? x.json() : null);
+      const r = await fetch(('/api/capture/' + saved.id)).then(x => x.ok ? x.json() : null);
       if (r && r.state === 'open') {
         draft = newDraft();
         draft.id = r.id; draft.idP = Promise.resolve(r.id);
         draft.segments = r.segments.map(sg => ({ seq: sg.seq, duration: sg.duration, transcript: sg.transcript }));
         draft.seq = Math.max(saved.seq || 0, ...r.segments.map(sg => sg.seq + 1), 0);
-        draft.photos = r.photos.map(k => withKey('/media/' + encodeURIComponent(k)));
+        draft.photos = r.photos.map(k => ('/media/' + encodeURIComponent(k)));
         schedulePoll();
       }
     } catch {}

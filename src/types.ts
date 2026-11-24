@@ -4,8 +4,6 @@ export interface Env {
   AI: Ai;
   ANTHROPIC_API_KEY: string;
   SHORTCUT_TOKEN: string;
-  /** Sign-in key for the browser app (also the ?key= debug fallback). */
-  DASHBOARD_KEY: string;
   // Telegram is optional: the browser app is the primary client. When these
   // are unset, the webhook route is off and outbound sends skip Telegram.
   TELEGRAM_BOT_TOKEN?: string;

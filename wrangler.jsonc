@@ -54,7 +54,6 @@
 
   // Secrets (set with `wrangler secret put <NAME>`):
   //   ANTHROPIC_API_KEY       — console.anthropic.com
-  //   DASHBOARD_KEY           — sign-in key for the browser app
   //   SHORTCUT_TOKEN          — bearer token for the watch Shortcut POST
   //   VAPID_PUBLIC_KEY        — web push (optional): `npm run vapid` prints both
   //   VAPID_PRIVATE_KEY       —   keys; the private one is a P-256 JWK

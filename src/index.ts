@@ -43,24 +43,14 @@ const FAVICON_SVG =
   `<path d="M9.5 14h.01M14.5 14h.01"/>` +
   `</g></svg>`;
 
-/** Constant-time string compare (for the sign-in key). */
-function safeEqual(a: string, b: string): boolean {
-  const ea = new TextEncoder().encode(a);
-  const eb = new TextEncoder().encode(b);
-  if (ea.byteLength !== eb.byteLength || ea.byteLength === 0) return false;
-  return crypto.subtle.timingSafeEqual(ea, eb);
-}
-
 function sessionToken(request: Request): string | null {
   const cookie = request.headers.get("cookie") ?? "";
   const match = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([a-f0-9]+)`));
   return match ? match[1] : null;
 }
 
-/** The signed-in user: session cookie (normal), or ?key= = the owner (curl/debug fallback). */
+/** The signed-in user, from the session cookie. */
 async function currentUser(request: Request, env: Env): Promise<UserRow | null> {
-  const url = new URL(request.url);
-  if (safeEqual(url.searchParams.get("key") ?? "", env.DASHBOARD_KEY)) return getUser(env, OWNER_ID);
   const token = sessionToken(request);
   return token ? sessionUser(env, token) : null;
 }
@@ -103,13 +93,6 @@ function loginPage(env: Env, error?: string, email = ""): Response {
       `<button style="${BUTTON_CSS}">Email me a sign-in link</button>` +
       `</form>` +
       `<p style="opacity:.6;font-size:.85rem">New here? Enter your email to ask for access. An admin approves each account.</p>` +
-      `<details style="margin-top:2rem;opacity:.7;font-size:.85rem"><summary style="cursor:pointer">Sign in with the owner key</summary>` +
-      `<form method="POST" action="/login" style="display:flex;flex-direction:column;gap:.5rem;margin-top:.6rem">` +
-      // A username field lets password managers save and fill the key.
-      `<input type="text" name="username" value="cyborgy" autocomplete="username" hidden>` +
-      `<input type="password" name="key" placeholder="DASHBOARD_KEY" autocomplete="current-password" style="${INPUT_CSS}">` +
-      `<button style="${BUTTON_CSS};font-size:.9rem;padding:.4rem 1rem">Sign in</button>` +
-      `</form></details>` +
       (telegramEnabled(env) ? `<p style="opacity:.5;font-size:.8rem">The owner can also send /login to the Telegram bot.</p>` : "") +
       `<script>try{document.getElementById('tz').value=Intl.DateTimeFormat().resolvedOptions().timeZone}catch(e){}</script>`,
     error ? 400 : 200,
@@ -218,7 +201,7 @@ export default {
       });
     }
 
-    // Browser sign-in with the DASHBOARD_KEY (no Telegram needed).
+    // Browser sign-in: an email gets a magic link (or files an access request).
     if (url.pathname === "/login" && request.method === "GET") return loginPage(env);
     if (url.pathname === "/login" && request.method === "POST") {
       const form = await request.formData().catch(() => null);
@@ -237,17 +220,7 @@ export default {
             `<p style="opacity:.7">The link works once, for 10 minutes.</p>`,
         );
       }
-      const given = String(form?.get("key") ?? "").trim();
-      if (!safeEqual(given, env.DASHBOARD_KEY)) {
-        // Slow down guessing a little; the key itself has 64+ bits.
-        await new Promise((r) => setTimeout(r, 800));
-        return loginPage(env, "That key is not correct.");
-      }
-      const session = await createSession(env, OWNER_ID);
-      return new Response(null, {
-        status: 302,
-        headers: { location: "/", "set-cookie": sessionCookie(session) },
-      });
+      return loginPage(env, "Enter your email address.");
     }
     if (url.pathname === "/logout" && request.method === "POST") {
       const token = sessionToken(request);
@@ -258,8 +231,7 @@ export default {
       });
     }
 
-    // Everything below is personal data: session cookie, or ?key= fallback.
-    const key = url.searchParams.get("key");
+    // Everything below is personal data: session cookie only.
     const user = await currentUser(request, env);
     if (!user) {
       if (url.pathname === "/" && request.method === "GET") return Response.redirect(`${url.origin}/login`, 302);
@@ -442,9 +414,7 @@ export default {
       return new Response(object.body, { headers });
     }
     if (url.pathname === "/" && request.method === "GET") {
-      // Only a correct key goes into the page (an arbitrary ?key= used to be
-      // written into the page script unvalidated).
-      return dashboardPage(key && safeEqual(key, uenv.DASHBOARD_KEY) ? key : null);
+      return dashboardPage();
     }
 
     return new Response("not found", { status: 404 });

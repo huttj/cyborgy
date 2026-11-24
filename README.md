@@ -26,13 +26,13 @@ Voice/text/photo ──▶ Telegram ──▶ Worker /webhook ─▶ routing lay
                  ─▶ daily recap 9pm ──▶ Telegram
                  ─▶ weekly analysis Sun 6pm ──▶ chart image + report + dashboard link
                                         │
-  GET /?key=… ──▶ dashboard (mood/energy chart, categories, latest report, recent entries)
+  GET / (session) ──▶ dashboard (mood/energy chart, categories, latest report, recent entries)
 ```
 
 ## Accounts
 
 - **Sign-in:** enter your email on `/login`. An approved user gets a one-time magic link (10 minutes). A new address becomes an access request: the admins get an email and a push, and approve or reject it in **Settings → Accounts**. Approval emails the person a 24-hour sign-in link. Only approved users get mail, so a mistyped signup never bounces.
-- **Admins** are the emails in the `ADMIN_EMAILS` secret (kept out of this public repo). The first admin to sign in becomes the **owner** (user 1): the data from before accounts existed, the Telegram bot, the Shortcut token and the `DASHBOARD_KEY` fallback all belong to the owner.
+- **Admins** are the emails in the `ADMIN_EMAILS` secret (kept out of this public repo). The first admin to sign in becomes the **owner** (user 1): the data from before accounts existed, the Telegram bot and the Shortcut token belong to the owner.
 - **Separation:** every per-user table has `user_id`; request handlers get a `UEnv` (the Env plus `USER_ID`, with `TIMEZONE` set to the user's browser timezone), and every per-user query reads it. Media is served only when the R2 key belongs to one of the user's messages.
 - All users' AI calls use the owner's `ANTHROPIC_API_KEY`.
 
@@ -51,7 +51,6 @@ npm run db:migrate                    # apply migrations to remote D1
 ### 2. Secrets
 ```bash
 npx wrangler secret put ANTHROPIC_API_KEY        # console.anthropic.com
-npx wrangler secret put DASHBOARD_KEY            # owner fallback sign-in key: openssl rand -hex 16
 npx wrangler secret put ADMIN_EMAILS             # comma-separated admin emails
 npx wrangler secret put SHORTCUT_TOKEN           # openssl rand -hex 16
 npm run vapid                                    # prints a web push key pair, then:
@@ -61,7 +60,7 @@ npx wrangler secret put VAPID_PRIVATE_KEY        # the JSON (JWK) line
 Also set `TIMEZONE` (default for new users) and `PUBLIC_URL` in `wrangler.jsonc`, and turn on Email Sending for the domain: `npx wrangler email sending enable <domain>`. Mail goes out from `hello@<domain>` through the `EMAIL` binding.
 
 ### 3. Deploy and sign in
-`npm run deploy`, open the site, and sign in with an admin email (or the owner key). The session cookie lasts 30 days and slides with use. On iPhone, tap Share → **Add to Home Screen** and open it from there; then **Settings → Turn on** notifications. Turn on check-ins / recaps in Settings.
+`npm run deploy`, open the site, and sign in with an admin email. The session cookie lasts 30 days and slides with use. On iPhone, tap Share → **Add to Home Screen** and open it from there; then **Settings → Turn on** notifications. Turn on check-ins / recaps in Settings.
 
 ### 4. Optional: Telegram bot
 1. Message [@BotFather](https://t.me/botfather) → `/newbot` → save the token; get your numeric id from [@userinfobot](https://t.me/userinfobot).
@@ -86,14 +85,14 @@ Then: Watch Ultra → Settings → Action Button → Shortcut → "Log it". Same
 - **Fix an extraction**: the ↻ button on a card re-extracts, with an optional typed/dictated steer.
 - **Pings** (Settings): a few gentle check-ins a day, skipped when you've logged recently. A tap on the notification opens the composer.
 - **Daily recap** at 9pm; **weekly analysis** Sunday 6pm (also on the Review tab). Both off by default.
-- **Telegram** (optional): same brain; `/note`, `/ask`, `/login` for a sign-in link. `?key=<DASHBOARD_KEY>` still works as a curl/debug fallback.
+- **Telegram** (optional): same brain; `/note`, `/ask`, `/login` for a sign-in link.
 
 ## Development
 
 ```bash
 cp .dev.vars.example .dev.vars   # fill in secrets
 npm run db:migrate:local
-npm run dev                      # local worker at http://localhost:8787 (sign in with DASHBOARD_KEY)
+npm run dev                      # local worker at http://localhost:8787 (sign in by email; needs the EMAIL binding, which is remote)
 npm run typecheck
 ```
 

@@ -25,7 +25,7 @@ export async function getUser(env: Env, id: number): Promise<UserRow | null> {
   return env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(id).first<UserRow>();
 }
 
-/** The owner's Env (Telegram bot, Shortcut endpoint, ?key= fallback). */
+/** The owner's Env (Telegram bot, Shortcut endpoint). */
 export async function ownerEnv(env: Env): Promise<UEnv> {
   const owner = await getUser(env, OWNER_ID);
   return forUser(env, owner ?? { id: OWNER_ID, timezone: null });

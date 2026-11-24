@@ -1,6 +1,5 @@
 # Copy to .dev.vars for local development (wrangler dev)
 ANTHROPIC_API_KEY=
-DASHBOARD_KEY=
 ADMIN_EMAILS=
 SHORTCUT_TOKEN=
 # Web push (optional): npm run vapid
